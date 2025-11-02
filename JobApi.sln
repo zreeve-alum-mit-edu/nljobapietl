@@ -9,6 +9,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JobApi.ETL", "JobApi.ETL\Jo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JobApi.Lambda", "JobApi.Lambda\JobApi.Lambda.csproj", "{D387FC5F-EECF-4361-AE64-0A1212EB162B}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "JobApi.Lambda.Api", "JobApi.Lambda.Api", "{06EC6080-103E-476B-B9DC-FB908A9E42D9}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{EF80BBA6-4139-4757-994E-0D92F67D0A2D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JobApi.Lambda.Api", "JobApi.Lambda.Api\src\JobApi.Lambda.Api\JobApi.Lambda.Api.csproj", "{5E3C1191-BC56-45A2-A2DB-0E9B2E3B7A56}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -30,5 +36,13 @@ Global
 		{D387FC5F-EECF-4361-AE64-0A1212EB162B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D387FC5F-EECF-4361-AE64-0A1212EB162B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D387FC5F-EECF-4361-AE64-0A1212EB162B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5E3C1191-BC56-45A2-A2DB-0E9B2E3B7A56}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5E3C1191-BC56-45A2-A2DB-0E9B2E3B7A56}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5E3C1191-BC56-45A2-A2DB-0E9B2E3B7A56}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5E3C1191-BC56-45A2-A2DB-0E9B2E3B7A56}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{EF80BBA6-4139-4757-994E-0D92F67D0A2D} = {06EC6080-103E-476B-B9DC-FB908A9E42D9}
+		{5E3C1191-BC56-45A2-A2DB-0E9B2E3B7A56} = {EF80BBA6-4139-4757-994E-0D92F67D0A2D}
 	EndGlobalSection
 EndGlobal
