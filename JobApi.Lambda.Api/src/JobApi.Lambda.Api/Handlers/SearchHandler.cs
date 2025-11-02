@@ -192,13 +192,18 @@ public class SearchHandler
 
             // Build distance calculation using Haversine formula
             // 6371 = Earth's radius in km, 0.621371 = km to miles conversion
+            // Must check for NULL coordinates first
             var distanceCalculation = $@"(
-                6371 * acos(
-                    cos(radians({lat})) * cos(radians(latitude)) *
-                    cos(radians(longitude) - radians({lon})) +
-                    sin(radians({lat})) * sin(radians(latitude))
-                )
-            ) * 0.621371 <= {filter.Miles}";
+                latitude IS NOT NULL AND
+                longitude IS NOT NULL AND
+                (
+                    6371 * acos(
+                        cos(radians({lat})) * cos(radians(latitude)) *
+                        cos(radians(longitude) - radians({lon})) +
+                        sin(radians({lat})) * sin(radians(latitude))
+                    )
+                ) * 0.621371 <= {filter.Miles}
+            )";
 
             // Combine workplace types AND distance for this location filter
             workplaceConditions.Add($"(({workplaceTypeClause}) AND {distanceCalculation})");
