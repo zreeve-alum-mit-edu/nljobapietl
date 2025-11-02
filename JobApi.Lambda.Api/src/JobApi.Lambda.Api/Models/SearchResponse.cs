@@ -28,11 +28,11 @@ public class JobResult
     [JsonPropertyName("workplace")]
     public string Workplace { get; set; } = string.Empty;
 
+    [JsonPropertyName("workplaceConfidence")]
+    public string? WorkplaceConfidence { get; set; }
+
     [JsonPropertyName("location")]
     public string Location { get; set; } = string.Empty;
-
-    [JsonPropertyName("salary")]
-    public string? Salary { get; set; }
 
     [JsonPropertyName("url")]
     public string Url { get; set; } = string.Empty;

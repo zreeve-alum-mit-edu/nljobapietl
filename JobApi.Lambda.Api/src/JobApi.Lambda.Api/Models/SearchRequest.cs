@@ -7,21 +7,30 @@ public class SearchRequest
     [JsonPropertyName("prompt")]
     public string Prompt { get; set; } = string.Empty;
 
-    [JsonPropertyName("limit")]
-    public int Limit { get; set; }
+    [JsonPropertyName("numJobs")]
+    public int NumJobs { get; set; }
+
+    [JsonPropertyName("includeRemote")]
+    public bool IncludeRemote { get; set; }
+
+    [JsonPropertyName("daysSincePosting")]
+    public int? DaysSincePosting { get; set; }
 
     [JsonPropertyName("filters")]
-    public List<SearchFilter> Filters { get; set; } = new();
+    public List<LocationFilter> Filters { get; set; } = new();
 }
 
-public class SearchFilter
+public class LocationFilter
 {
-    [JsonPropertyName("workplaceType")]
-    public string WorkplaceType { get; set; } = string.Empty;
+    [JsonPropertyName("includeOnsite")]
+    public bool IncludeOnsite { get; set; }
+
+    [JsonPropertyName("includeHybrid")]
+    public bool IncludeHybrid { get; set; }
 
     [JsonPropertyName("location")]
-    public string? Location { get; set; }
+    public string Location { get; set; } = string.Empty;
 
     [JsonPropertyName("miles")]
-    public int? Miles { get; set; }
+    public int Miles { get; set; }
 }
