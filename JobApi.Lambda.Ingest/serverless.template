@@ -1,0 +1,87 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Transform": "AWS::Serverless-2016-10-31",
+  "Description": "Lambda function for JobApi file ingestion pipeline",
+
+  "Parameters": {
+    "S3BucketName": {
+      "Type": "String",
+      "Default": "circuitdreams-nl-jobsearch-api",
+      "Description": "S3 bucket name for ingestion data"
+    },
+    "DBHost": {
+      "Type": "String",
+      "Default": "nljobsearchapi.c74ioigi2bn4.us-east-2.rds.amazonaws.com",
+      "Description": "PostgreSQL database host"
+    },
+    "DBName": {
+      "Type": "String",
+      "Default": "nljobsearch",
+      "Description": "PostgreSQL database name"
+    },
+    "DBUser": {
+      "Type": "String",
+      "Default": "JSadmin",
+      "Description": "PostgreSQL database user"
+    },
+    "DBPassword": {
+      "Type": "String",
+      "NoEcho": true,
+      "Default": "mxofoyLVkiV2aQACxIbJ",
+      "Description": "PostgreSQL database password"
+    },
+    "DBPort": {
+      "Type": "String",
+      "Default": "5432",
+      "Description": "PostgreSQL database port"
+    }
+  },
+
+  "Resources": {
+    "ProcessIngestFunction": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "FunctionName": "JobApi-ProcessIngest",
+        "Description": "Processes JSONL job files from S3 and inserts into PostgreSQL database",
+        "Handler": "JobApi.Lambda.Ingest::JobApi.Lambda.Ingest.Function::FunctionHandler",
+        "Runtime": "dotnet8",
+        "CodeUri": "./src/JobApi.Lambda.Ingest/bin/Release/net8.0/linux-x64/publish",
+        "MemorySize": 1024,
+        "Timeout": 900,
+        "Environment": {
+          "Variables": {
+            "DB_HOST": { "Ref": "DBHost" },
+            "DB_NAME": { "Ref": "DBName" },
+            "DB_USER": { "Ref": "DBUser" },
+            "DB_PASSWORD": { "Ref": "DBPassword" },
+            "DB_PORT": { "Ref": "DBPort" }
+          }
+        },
+        "Policies": [
+          {
+            "S3CrudPolicy": {
+              "BucketName": { "Ref": "S3BucketName" }
+            }
+          }
+        ]
+      }
+    },
+
+    "ProcessIngestFunctionPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": { "Ref": "ProcessIngestFunction" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "s3.amazonaws.com",
+        "SourceArn": { "Fn::Sub": "arn:aws:s3:::${S3BucketName}" }
+      }
+    }
+  },
+
+  "Outputs": {
+    "ProcessIngestFunction": {
+      "Description": "Lambda Function ARN for processing ingest files",
+      "Value": { "Fn::GetAtt": [ "ProcessIngestFunction", "Arn" ] }
+    }
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Transform": "AWS::Serverless-2016-10-31",
+  "Description": "Lambda function for processing LLM batch result files",
+
+  "Parameters": {
+    "S3BucketName": {
+      "Type": "String",
+      "Default": "circuitdreams-nl-jobsearch-api",
+      "Description": "S3 bucket name for batch files"
+    },
+    "DBHost": {
+      "Type": "String",
+      "Default": "nljobsearchapi.c74ioigi2bn4.us-east-2.rds.amazonaws.com",
+      "Description": "PostgreSQL database host"
+    },
+    "DBName": {
+      "Type": "String",
+      "Default": "nljobsearch",
+      "Description": "PostgreSQL database name"
+    },
+    "DBUser": {
+      "Type": "String",
+      "Default": "JSadmin",
+      "Description": "PostgreSQL database user"
+    },
+    "DBPassword": {
+      "Type": "String",
+      "NoEcho": true,
+      "Default": "mxofoyLVkiV2aQACxIbJ",
+      "Description": "PostgreSQL database password"
+    },
+    "DBPort": {
+      "Type": "String",
+      "Default": "5432",
+      "Description": "PostgreSQL database port"
+    }
+  },
+
+  "Resources": {
+    "ProcessLlmResultsFunction": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "FunctionName": "JobApi-ProcessLlmResults",
+        "Description": "Processes LLM batch result files from S3 and updates job database",
+        "Handler": "JobApi.Lambda.ProcessLlmResults::JobApi.Lambda.ProcessLlmResults.Function::FunctionHandler",
+        "Runtime": "dotnet8",
+        "CodeUri": "./src/JobApi.Lambda.ProcessLlmResults/bin/Release/net8.0/linux-x64/publish",
+        "MemorySize": 1024,
+        "Timeout": 900,
+        "Environment": {
+          "Variables": {
+            "DB_HOST": { "Ref": "DBHost" },
+            "DB_NAME": { "Ref": "DBName" },
+            "DB_USER": { "Ref": "DBUser" },
+            "DB_PASSWORD": { "Ref": "DBPassword" },
+            "DB_PORT": { "Ref": "DBPort" }
+          }
+        },
+        "Policies": [
+          {
+            "S3CrudPolicy": {
+              "BucketName": { "Ref": "S3BucketName" }
+            }
+          }
+        ],
+        "Events": {
+          "S3ObjectCreated": {
+            "Type": "S3",
+            "Properties": {
+              "Bucket": {
+                "Ref": "BatchResultsBucket"
+              },
+              "Events": "s3:ObjectCreated:*",
+              "Filter": {
+                "S3Key": {
+                  "Rules": [
+                    {
+                      "Name": "prefix",
+                      "Value": "llmbatch/batchresults/"
+                    },
+                    {
+                      "Name": "suffix",
+                      "Value": ".jsonl"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "BatchResultsBucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": { "Ref": "S3BucketName" }
+      }
+    }
+  },
+
+  "Outputs": {
+    "ProcessLlmResultsFunction": {
+      "Description": "Lambda Function ARN for processing LLM results",
+      "Value": { "Fn::GetAtt": [ "ProcessLlmResultsFunction", "Arn" ] }
+    }
+  }
+}

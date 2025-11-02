@@ -1,0 +1,87 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Transform": "AWS::Serverless-2016-10-31",
+  "Description": "Lambda function for JobApi LLM batch generation pipeline",
+
+  "Parameters": {
+    "S3BucketName": {
+      "Type": "String",
+      "Default": "circuitdreams-nl-jobsearch-api",
+      "Description": "S3 bucket name for batch files"
+    },
+    "DBHost": {
+      "Type": "String",
+      "Default": "nljobsearchapi.c74ioigi2bn4.us-east-2.rds.amazonaws.com",
+      "Description": "PostgreSQL database host"
+    },
+    "DBName": {
+      "Type": "String",
+      "Default": "nljobsearch",
+      "Description": "PostgreSQL database name"
+    },
+    "DBUser": {
+      "Type": "String",
+      "Default": "JSadmin",
+      "Description": "PostgreSQL database user"
+    },
+    "DBPassword": {
+      "Type": "String",
+      "NoEcho": true,
+      "Default": "mxofoyLVkiV2aQACxIbJ",
+      "Description": "PostgreSQL database password"
+    },
+    "DBPort": {
+      "Type": "String",
+      "Default": "5432",
+      "Description": "PostgreSQL database port"
+    }
+  },
+
+  "Resources": {
+    "LlmBatchGenerateFunction": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "FunctionName": "JobApi-LlmBatchGenerate",
+        "Description": "Generates LLM batch files for workplace classification when jobs are ingested",
+        "Handler": "JobApi.Lambda.LlmBatchGenerate::JobApi.Lambda.LlmBatchGenerate.Function::FunctionHandler",
+        "Runtime": "dotnet8",
+        "CodeUri": "./src/JobApi.Lambda.LlmBatchGenerate/bin/Release/net8.0/linux-x64/publish",
+        "MemorySize": 2048,
+        "Timeout": 900,
+        "Environment": {
+          "Variables": {
+            "DB_HOST": { "Ref": "DBHost" },
+            "DB_NAME": { "Ref": "DBName" },
+            "DB_USER": { "Ref": "DBUser" },
+            "DB_PASSWORD": { "Ref": "DBPassword" },
+            "DB_PORT": { "Ref": "DBPort" }
+          }
+        },
+        "Policies": [
+          {
+            "S3CrudPolicy": {
+              "BucketName": { "Ref": "S3BucketName" }
+            }
+          }
+        ]
+      }
+    },
+
+    "LlmBatchGenerateFunctionPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": { "Ref": "LlmBatchGenerateFunction" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "s3.amazonaws.com",
+        "SourceArn": { "Fn::Sub": "arn:aws:s3:::${S3BucketName}" }
+      }
+    }
+  },
+
+  "Outputs": {
+    "LlmBatchGenerateFunction": {
+      "Description": "Lambda Function ARN for generating LLM batches",
+      "Value": { "Fn::GetAtt": [ "LlmBatchGenerateFunction", "Arn" ] }
+    }
+  }
+}

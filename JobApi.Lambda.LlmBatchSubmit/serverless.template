@@ -1,0 +1,93 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Transform": "AWS::Serverless-2016-10-31",
+  "Description": "Lambda function for submitting LLM batch files to OpenAI",
+
+  "Parameters": {
+    "S3BucketName": {
+      "Type": "String",
+      "Default": "circuitdreams-nl-jobsearch-api",
+      "Description": "S3 bucket name for batch files"
+    },
+    "DBHost": {
+      "Type": "String",
+      "Default": "nljobsearchapi.c74ioigi2bn4.us-east-2.rds.amazonaws.com",
+      "Description": "PostgreSQL database host"
+    },
+    "DBName": {
+      "Type": "String",
+      "Default": "nljobsearch",
+      "Description": "PostgreSQL database name"
+    },
+    "DBUser": {
+      "Type": "String",
+      "Default": "JSadmin",
+      "Description": "PostgreSQL database user"
+    },
+    "DBPassword": {
+      "Type": "String",
+      "NoEcho": true,
+      "Default": "mxofoyLVkiV2aQACxIbJ",
+      "Description": "PostgreSQL database password"
+    },
+    "DBPort": {
+      "Type": "String",
+      "Default": "5432",
+      "Description": "PostgreSQL database port"
+    },
+    "OpenAiApiKey": {
+      "Type": "String",
+      "NoEcho": true,
+      "Description": "OpenAI API key for batch submissions"
+    }
+  },
+
+  "Resources": {
+    "LlmBatchSubmitFunction": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "FunctionName": "JobApi-LlmBatchSubmit",
+        "Description": "Submits LLM batch files to OpenAI when batch files are created",
+        "Handler": "JobApi.Lambda.LlmBatchSubmit::JobApi.Lambda.LlmBatchSubmit.Function::FunctionHandler",
+        "Runtime": "dotnet8",
+        "CodeUri": "./src/JobApi.Lambda.LlmBatchSubmit/bin/Release/net8.0/linux-x64/publish",
+        "MemorySize": 512,
+        "Timeout": 300,
+        "Environment": {
+          "Variables": {
+            "DB_HOST": { "Ref": "DBHost" },
+            "DB_NAME": { "Ref": "DBName" },
+            "DB_USER": { "Ref": "DBUser" },
+            "DB_PASSWORD": { "Ref": "DBPassword" },
+            "DB_PORT": { "Ref": "DBPort" },
+            "OPENAI_API_KEY": { "Ref": "OpenAiApiKey" }
+          }
+        },
+        "Policies": [
+          {
+            "S3CrudPolicy": {
+              "BucketName": { "Ref": "S3BucketName" }
+            }
+          }
+        ]
+      }
+    },
+
+    "LlmBatchSubmitFunctionPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": { "Ref": "LlmBatchSubmitFunction" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "s3.amazonaws.com",
+        "SourceArn": { "Fn::Sub": "arn:aws:s3:::${S3BucketName}" }
+      }
+    }
+  },
+
+  "Outputs": {
+    "LlmBatchSubmitFunction": {
+      "Description": "Lambda Function ARN for submitting LLM batches to OpenAI",
+      "Value": { "Fn::GetAtt": [ "LlmBatchSubmitFunction", "Arn" ] }
+    }
+  }
+}

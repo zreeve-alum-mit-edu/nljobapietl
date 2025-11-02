@@ -1,0 +1,93 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Transform": "AWS::Serverless-2016-10-31",
+  "Description": "Lambda function for checking LLM batch status hourly",
+
+  "Parameters": {
+    "S3BucketName": {
+      "Type": "String",
+      "Default": "circuitdreams-nl-jobsearch-api",
+      "Description": "S3 bucket name for batch files"
+    },
+    "DBHost": {
+      "Type": "String",
+      "Default": "nljobsearchapi.c74ioigi2bn4.us-east-2.rds.amazonaws.com",
+      "Description": "PostgreSQL database host"
+    },
+    "DBName": {
+      "Type": "String",
+      "Default": "nljobsearch",
+      "Description": "PostgreSQL database name"
+    },
+    "DBUser": {
+      "Type": "String",
+      "Default": "JSadmin",
+      "Description": "PostgreSQL database user"
+    },
+    "DBPassword": {
+      "Type": "String",
+      "NoEcho": true,
+      "Default": "mxofoyLVkiV2aQACxIbJ",
+      "Description": "PostgreSQL database password"
+    },
+    "DBPort": {
+      "Type": "String",
+      "Default": "5432",
+      "Description": "PostgreSQL database port"
+    },
+    "OpenAiApiKey": {
+      "Type": "String",
+      "NoEcho": true,
+      "Description": "OpenAI API key for batch submissions"
+    }
+  },
+
+  "Resources": {
+    "LlmBatchCheckFunction": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "FunctionName": "JobApi-LlmBatchCheck",
+        "Description": "Checks LLM batch status and downloads completed results hourly",
+        "Handler": "JobApi.Lambda.LlmBatchCheck::JobApi.Lambda.LlmBatchCheck.Function::FunctionHandler",
+        "Runtime": "dotnet8",
+        "CodeUri": "./src/JobApi.Lambda.LlmBatchCheck/bin/Release/net8.0/linux-x64/publish",
+        "MemorySize": 512,
+        "Timeout": 900,
+        "Environment": {
+          "Variables": {
+            "DB_HOST": { "Ref": "DBHost" },
+            "DB_NAME": { "Ref": "DBName" },
+            "DB_USER": { "Ref": "DBUser" },
+            "DB_PASSWORD": { "Ref": "DBPassword" },
+            "DB_PORT": { "Ref": "DBPort" },
+            "OPENAI_API_KEY": { "Ref": "OpenAiApiKey" }
+          }
+        },
+        "Policies": [
+          {
+            "S3CrudPolicy": {
+              "BucketName": { "Ref": "S3BucketName" }
+            }
+          }
+        ],
+        "Events": {
+          "HourlySchedule": {
+            "Type": "Schedule",
+            "Properties": {
+              "Schedule": "rate(1 hour)",
+              "Description": "Trigger LLM batch check every hour",
+              "Enabled": true
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "Outputs": {
+    "LlmBatchCheckFunction": {
+      "Description": "Lambda Function ARN for checking LLM batch status",
+      "Value": { "Fn::GetAtt": [ "LlmBatchCheckFunction", "Arn" ] }
+    }
+  }
+}
