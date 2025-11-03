@@ -25,6 +25,16 @@ namespace JobApi.TestGui
             this.chkRemote = new System.Windows.Forms.CheckBox();
             this.lblDays = new System.Windows.Forms.Label();
             this.txtDays = new System.Windows.Forms.TextBox();
+            this.lblRemotePrompt = new System.Windows.Forms.Label();
+            this.txtRemotePrompt = new System.Windows.Forms.TextBox();
+            this.lblRemoteNumJobs = new System.Windows.Forms.Label();
+            this.txtRemoteNumJobs = new System.Windows.Forms.TextBox();
+            this.lblRemoteDays = new System.Windows.Forms.Label();
+            this.txtRemoteDays = new System.Windows.Forms.TextBox();
+            this.btnSearchRemote = new System.Windows.Forms.Button();
+            this.btnClearRemote = new System.Windows.Forms.Button();
+            this.txtRemoteResults = new System.Windows.Forms.TextBox();
+            this.lblRemoteResults = new System.Windows.Forms.Label();
             this.grpFilter = new System.Windows.Forms.GroupBox();
             this.chkHybrid = new System.Windows.Forms.CheckBox();
             this.chkOnsite = new System.Windows.Forms.CheckBox();
