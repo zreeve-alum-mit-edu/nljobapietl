@@ -257,7 +257,7 @@ public class SearchHandler
             ORDER BY similarity_score ASC
             LIMIT {limit}";
 
-        context.Logger.LogInformation($"Executing SQL query");
+        context.Logger.LogInformation($"Executing SQL query: {sql}");
 
         await using var cmd = new NpgsqlCommand(sql, connection);
         cmd.Parameters.AddWithValue("embedding", embedding);

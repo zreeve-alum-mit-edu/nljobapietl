@@ -182,9 +182,9 @@ public class ApiGatewayHandler
                     return CreateResponse(400, new { message = $"Filter #{i + 1}: Miles must be at least 1 (received: {filter.Miles})" });
                 }
 
-                if (filter.Miles > 500)
+                if (filter.Miles > 50)
                 {
-                    return CreateResponse(400, new { message = $"Filter #{i + 1}: Miles cannot exceed 500 (received: {filter.Miles})" });
+                    return CreateResponse(400, new { message = $"Filter #{i + 1}: Miles cannot exceed 50 (received: {filter.Miles})" });
                 }
             }
 
