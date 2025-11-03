@@ -9,7 +9,6 @@ public class SearchHandler
 {
     private readonly string _connectionString;
     private readonly string _openAiApiKey;
-    private readonly int _hnswEfSearch;
 
     public SearchHandler()
     {
@@ -20,15 +19,14 @@ public class SearchHandler
 
         _connectionString = $"Host={host};Database={database};Username={username};Password={password}";
         _openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? throw new Exception("OPENAI_API_KEY not set");
-        _hnswEfSearch = int.Parse(Environment.GetEnvironmentVariable("HNSW_EF_SEARCH") ?? "200");
     }
 
     /// <summary>
-    /// Searches for jobs using natural language, remote flag, date filter, and location filters
+    /// Searches for jobs using natural language and location filter
     /// </summary>
     public async Task<SearchResponse> Search(SearchRequest request, ILambdaContext context)
     {
-        context.Logger.LogInformation($"Starting search: prompt='{request.Prompt}', numJobs={request.NumJobs}, includeRemote={request.IncludeRemote}, daysSince={request.DaysSincePosting}, filters={request.Filters.Count}");
+        context.Logger.LogInformation($"Starting search: prompt='{request.Prompt}', numJobs={request.NumJobs}, location={request.City},{request.State}, miles={request.Miles}, onsite={request.IncludeOnsite}, hybrid={request.IncludeHybrid}, daysSince={request.DaysSincePosting}");
 
         // Step 1: Create embedding from prompt using OpenAI API
         float[] embedding;
@@ -46,14 +44,11 @@ public class SearchHandler
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync();
 
-        // Step 3: **CRITICAL**: SET hnsw.ef_search for vector similarity performance
-        await SetHnswEfSearch(connection, context);
+        // Step 3: Get coordinates for location
+        var (lat, lon) = await GetCoordinates(connection, request.City, request.State, context);
 
-        // Step 4: Build WHERE clause from filters (async because it looks up coordinates)
-        var whereClause = await BuildWhereClause(connection, request, context);
-
-        // Step 5: Execute vector similarity search query
-        var jobs = await SearchJobs(connection, embedding, whereClause, request.NumJobs, request.DaysSincePosting, context);
+        // Step 4: Execute vector similarity search query with exact KNN
+        var jobs = await SearchJobs(connection, embedding, request, lat, lon, context);
 
         context.Logger.LogInformation($"Search completed: found {jobs.Count} jobs");
 
@@ -145,95 +140,50 @@ public class SearchHandler
     }
 
     /// <summary>
-    /// Sets the HNSW ef_search parameter for optimal vector search performance
-    /// </summary>
-    private async Task SetHnswEfSearch(NpgsqlConnection connection, ILambdaContext context)
-    {
-        context.Logger.LogInformation($"Setting hnsw.ef_search = {_hnswEfSearch}");
-
-        await using var cmd = new NpgsqlCommand($"SET hnsw.ef_search = {_hnswEfSearch}", connection);
-        await cmd.ExecuteNonQueryAsync();
-    }
-
-    /// <summary>
-    /// Builds the WHERE clause from search request filters
-    /// </summary>
-    private async Task<string> BuildWhereClause(NpgsqlConnection connection, SearchRequest request, ILambdaContext context)
-    {
-        var workplaceConditions = new List<string>();
-
-        // Include remote jobs if requested
-        if (request.IncludeRemote)
-        {
-            workplaceConditions.Add("generated_workplace = 'REMOTE'");
-            context.Logger.LogInformation("Added REMOTE workplace condition");
-        }
-
-        // Add location-based filters
-        foreach (var filter in request.Filters)
-        {
-            context.Logger.LogInformation($"Processing filter: location={filter.Location}, onsite={filter.IncludeOnsite}, hybrid={filter.IncludeHybrid}, miles={filter.Miles}");
-
-            // Get coordinates for this location
-            var (lat, lon) = await GetCoordinates(connection, filter.Location, context);
-
-            // Build workplace type conditions for this filter
-            var workplaceTypes = new List<string>();
-            if (filter.IncludeOnsite)
-            {
-                workplaceTypes.Add("generated_workplace = 'ONSITE'");
-            }
-            if (filter.IncludeHybrid)
-            {
-                workplaceTypes.Add("generated_workplace = 'HYBRID'");
-            }
-
-            var workplaceTypeClause = string.Join(" OR ", workplaceTypes);
-
-            // Build distance calculation using PostGIS ST_DWithin with GIST index
-            // Convert miles to meters (1 mile = 1609.34 meters)
-            var distanceMeters = filter.Miles * 1609.34;
-            var distanceCalculation = $@"(
-                GISTlocation IS NOT NULL AND
-                ST_DWithin(
-                    GISTlocation,
-                    ST_SetSRID(ST_MakePoint({lon}, {lat}), 4326)::geography,
-                    {distanceMeters}
-                )
-            )";
-
-            // Combine workplace types AND distance for this location filter
-            workplaceConditions.Add($"(({workplaceTypeClause}) AND {distanceCalculation})");
-        }
-
-        // Combine all workplace conditions with OR
-        var workplaceWhereClause = string.Join(" OR ", workplaceConditions);
-
-        context.Logger.LogInformation($"Built workplace WHERE clause with {workplaceConditions.Count} conditions");
-
-        return workplaceWhereClause;
-    }
-
-    /// <summary>
-    /// Executes the vector similarity search query
+    /// Executes the vector similarity search query using exact KNN with MATERIALIZED CTE
     /// </summary>
     private async Task<List<JobResult>> SearchJobs(
         NpgsqlConnection connection,
         float[] embedding,
-        string whereClause,
-        int limit,
-        int? daysSincePosting,
+        SearchRequest request,
+        double lat,
+        double lon,
         ILambdaContext context)
     {
-        context.Logger.LogInformation($"Executing vector search query with limit={limit}, daysSince={daysSincePosting}");
+        context.Logger.LogInformation($"Executing exact KNN search with MATERIALIZED CTE");
+
+        // Build workplace IN clause based on includeOnsite and includeHybrid
+        var workplaceTypes = new List<string>();
+        if (request.IncludeOnsite) workplaceTypes.Add("'ONSITE'");
+        if (request.IncludeHybrid) workplaceTypes.Add("'HYBRID'");
+        var workplaceInClause = string.Join(",", workplaceTypes);
+
+        // Convert miles to meters
+        var distanceMeters = request.Miles * 1609.34;
 
         // Build date filter if specified
-        var dateFilter = daysSincePosting.HasValue
-            ? $"AND date_posted >= NOW() - INTERVAL '{daysSincePosting.Value} days'"
+        var dateFilter = request.DaysSincePosting.HasValue
+            ? $"AND j.date_posted >= NOW() - INTERVAL '{request.DaysSincePosting.Value} days'"
             : "";
 
-        // Build complete SQL query - JOIN with job_embeddings table
+        // Build query using MATERIALIZED CTE to force filter-first execution
         var sql = $@"
+            SET LOCAL jit = off;
+
+            WITH base AS MATERIALIZED (
+                SELECT j.id
+                FROM jobs j
+                WHERE j.is_valid = true
+                    AND j.status = 'embedded'
+                    AND j.generated_workplace IN ({workplaceInClause})
+                    AND j.GISTlocation IS NOT NULL
+                    AND ST_DWithin(
+                        j.GISTlocation,
+                        ST_SetSRID(ST_MakePoint(@lon, @lat), 4326)::geography,
+                        @distance
+                    )
+                    {dateFilter}
+            )
             SELECT
                 j.id,
                 j.job_title,
@@ -245,20 +195,22 @@ public class SearchHandler
                 j.generated_state,
                 j.job_url,
                 j.date_posted,
-                (je.embedding <=> @embedding::vector) as similarity_score
-            FROM jobs j
-            INNER JOIN job_embeddings je ON j.id = je.job_id
-            WHERE j.status = 'embedded'
-                AND j.is_valid = true
-                {dateFilter}
-                AND ({whereClause})
-            ORDER BY similarity_score ASC
-            LIMIT {limit}";
+                (e.embedding <=> @embedding::vector) AS similarity_score
+            FROM base b
+            JOIN job_embeddings e ON e.job_id = b.id
+            JOIN jobs j ON j.id = b.id
+            WHERE e.embedding IS NOT NULL
+            ORDER BY similarity_score, j.id
+            LIMIT @limit";
 
-        context.Logger.LogInformation($"Executing SQL query: {sql}");
+        context.Logger.LogInformation($"Executing SQL query with params: embedding(1536d), lon={lon}, lat={lat}, distance={distanceMeters}m, limit={request.NumJobs}");
 
         await using var cmd = new NpgsqlCommand(sql, connection);
         cmd.Parameters.AddWithValue("embedding", embedding);
+        cmd.Parameters.AddWithValue("lon", lon);
+        cmd.Parameters.AddWithValue("lat", lat);
+        cmd.Parameters.AddWithValue("distance", distanceMeters);
+        cmd.Parameters.AddWithValue("limit", request.NumJobs);
 
         var jobs = new List<JobResult>();
 
@@ -295,19 +247,15 @@ public class SearchHandler
     }
 
     /// <summary>
-    /// Parses location string (City,State) and gets coordinates from geolocations table
+    /// Gets coordinates for a city and state from geolocations table
     /// </summary>
     private async Task<(double lat, double lon)> GetCoordinates(
         NpgsqlConnection connection,
-        string location,
+        string city,
+        string state,
         ILambdaContext context)
     {
-        context.Logger.LogInformation($"Looking up coordinates for: {location}");
-
-        // Parse "City,State"
-        var parts = location.Split(',');
-        var city = parts[0].Trim();
-        var state = parts[1].Trim();
+        context.Logger.LogInformation($"Looking up coordinates for: {city}, {state}");
 
         var sql = @"
             SELECT latitude, longitude
@@ -326,12 +274,12 @@ public class SearchHandler
         {
             var lat = reader.GetDouble(0);
             var lon = reader.GetDouble(1);
-            context.Logger.LogInformation($"Found coordinates for {location}: lat={lat}, lon={lon}");
+            context.Logger.LogInformation($"Found coordinates for {city}, {state}: lat={lat}, lon={lon}");
             return (lat, lon);
         }
 
         // This should never happen because we validate locations in ApiGatewayHandler
-        throw new Exception($"Location '{location}' not found in geolocations table");
+        throw new Exception($"Location '{city}, {state}' not found in geolocations table");
     }
 }
 

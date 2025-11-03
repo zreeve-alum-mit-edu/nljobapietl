@@ -10,26 +10,20 @@ public class SearchRequest
     [JsonPropertyName("numJobs")]
     public int NumJobs { get; set; }
 
-    [JsonPropertyName("includeRemote")]
-    public bool IncludeRemote { get; set; }
-
-    [JsonPropertyName("daysSincePosting")]
-    public int? DaysSincePosting { get; set; }
-
-    [JsonPropertyName("filters")]
-    public List<LocationFilter> Filters { get; set; } = new();
-}
-
-public class LocationFilter
-{
     [JsonPropertyName("includeOnsite")]
     public bool IncludeOnsite { get; set; }
 
     [JsonPropertyName("includeHybrid")]
     public bool IncludeHybrid { get; set; }
 
-    [JsonPropertyName("location")]
-    public string Location { get; set; } = string.Empty;
+    [JsonPropertyName("daysSincePosting")]
+    public int? DaysSincePosting { get; set; }
+
+    [JsonPropertyName("city")]
+    public string City { get; set; } = string.Empty;
+
+    [JsonPropertyName("state")]
+    public string State { get; set; } = string.Empty;
 
     [JsonPropertyName("miles")]
     public int Miles { get; set; }

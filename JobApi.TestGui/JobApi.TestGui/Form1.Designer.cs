@@ -22,7 +22,6 @@ namespace JobApi.TestGui
             this.txtPrompt = new System.Windows.Forms.TextBox();
             this.lblNumJobs = new System.Windows.Forms.Label();
             this.txtNumJobs = new System.Windows.Forms.TextBox();
-            this.chkRemote = new System.Windows.Forms.CheckBox();
             this.lblDays = new System.Windows.Forms.Label();
             this.txtDays = new System.Windows.Forms.TextBox();
             this.lblRemotePrompt = new System.Windows.Forms.Label();
@@ -40,8 +39,10 @@ namespace JobApi.TestGui
             this.chkOnsite = new System.Windows.Forms.CheckBox();
             this.txtMiles = new System.Windows.Forms.TextBox();
             this.lblMiles = new System.Windows.Forms.Label();
-            this.txtLocation = new System.Windows.Forms.TextBox();
-            this.lblLocation = new System.Windows.Forms.Label();
+            this.txtSearchCity = new System.Windows.Forms.TextBox();
+            this.lblSearchCity = new System.Windows.Forms.Label();
+            this.txtSearchState = new System.Windows.Forms.TextBox();
+            this.lblSearchState = new System.Windows.Forms.Label();
             this.btnSearch = new System.Windows.Forms.Button();
             this.btnClear = new System.Windows.Forms.Button();
             this.txtResults = new System.Windows.Forms.TextBox();
@@ -86,7 +87,6 @@ namespace JobApi.TestGui
             this.tabSearch.Controls.Add(this.grpFilter);
             this.tabSearch.Controls.Add(this.txtDays);
             this.tabSearch.Controls.Add(this.lblDays);
-            this.tabSearch.Controls.Add(this.chkRemote);
             this.tabSearch.Controls.Add(this.txtNumJobs);
             this.tabSearch.Controls.Add(this.lblNumJobs);
             this.tabSearch.Controls.Add(this.txtPrompt);
@@ -133,18 +133,6 @@ namespace JobApi.TestGui
             this.txtNumJobs.TabIndex = 3;
             this.txtNumJobs.Text = "10";
             //
-            // chkRemote
-            //
-            this.chkRemote.AutoSize = true;
-            this.chkRemote.Checked = true;
-            this.chkRemote.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.chkRemote.Location = new System.Drawing.Point(130, 126);
-            this.chkRemote.Name = "chkRemote";
-            this.chkRemote.Size = new System.Drawing.Size(111, 19);
-            this.chkRemote.TabIndex = 4;
-            this.chkRemote.Text = "Include Remote";
-            this.chkRemote.UseVisualStyleBackColor = true;
-            //
             // lblDays
             //
             this.lblDays.AutoSize = true;
@@ -167,14 +155,16 @@ namespace JobApi.TestGui
             this.grpFilter.Controls.Add(this.chkOnsite);
             this.grpFilter.Controls.Add(this.txtMiles);
             this.grpFilter.Controls.Add(this.lblMiles);
-            this.grpFilter.Controls.Add(this.txtLocation);
-            this.grpFilter.Controls.Add(this.lblLocation);
+            this.grpFilter.Controls.Add(this.txtSearchState);
+            this.grpFilter.Controls.Add(this.lblSearchState);
+            this.grpFilter.Controls.Add(this.txtSearchCity);
+            this.grpFilter.Controls.Add(this.lblSearchCity);
             this.grpFilter.Location = new System.Drawing.Point(12, 163);
             this.grpFilter.Name = "grpFilter";
             this.grpFilter.Size = new System.Drawing.Size(760, 100);
             this.grpFilter.TabIndex = 7;
             this.grpFilter.TabStop = false;
-            this.grpFilter.Text = "Location Filter (optional)";
+            this.grpFilter.Text = "Location Filter (required)";
             //
             // chkHybrid
             //
@@ -184,7 +174,7 @@ namespace JobApi.TestGui
             this.chkHybrid.Location = new System.Drawing.Point(520, 54);
             this.chkHybrid.Name = "chkHybrid";
             this.chkHybrid.Size = new System.Drawing.Size(106, 19);
-            this.chkHybrid.TabIndex = 5;
+            this.chkHybrid.TabIndex = 7;
             this.chkHybrid.Text = "Include Hybrid";
             this.chkHybrid.UseVisualStyleBackColor = true;
             //
@@ -196,7 +186,7 @@ namespace JobApi.TestGui
             this.chkOnsite.Location = new System.Drawing.Point(520, 29);
             this.chkOnsite.Name = "chkOnsite";
             this.chkOnsite.Size = new System.Drawing.Size(106, 19);
-            this.chkOnsite.TabIndex = 4;
+            this.chkOnsite.TabIndex = 6;
             this.chkOnsite.Text = "Include Onsite";
             this.chkOnsite.UseVisualStyleBackColor = true;
             //
@@ -205,8 +195,8 @@ namespace JobApi.TestGui
             this.txtMiles.Location = new System.Drawing.Point(380, 52);
             this.txtMiles.Name = "txtMiles";
             this.txtMiles.Size = new System.Drawing.Size(100, 23);
-            this.txtMiles.TabIndex = 3;
-            this.txtMiles.Text = "50";
+            this.txtMiles.TabIndex = 5;
+            this.txtMiles.Text = "20";
             //
             // lblMiles
             //
@@ -214,25 +204,42 @@ namespace JobApi.TestGui
             this.lblMiles.Location = new System.Drawing.Point(380, 34);
             this.lblMiles.Name = "lblMiles";
             this.lblMiles.Size = new System.Drawing.Size(38, 15);
-            this.lblMiles.TabIndex = 2;
+            this.lblMiles.TabIndex = 4;
             this.lblMiles.Text = "Miles:";
             //
-            // txtLocation
+            // txtSearchState
             //
-            this.txtLocation.Location = new System.Drawing.Point(18, 52);
-            this.txtLocation.Name = "txtLocation";
-            this.txtLocation.Size = new System.Drawing.Size(340, 23);
-            this.txtLocation.TabIndex = 1;
-            this.txtLocation.Text = "";
+            this.txtSearchState.Location = new System.Drawing.Point(250, 52);
+            this.txtSearchState.Name = "txtSearchState";
+            this.txtSearchState.Size = new System.Drawing.Size(100, 23);
+            this.txtSearchState.TabIndex = 3;
+            this.txtSearchState.Text = "TX";
             //
-            // lblLocation
+            // lblSearchState
             //
-            this.lblLocation.AutoSize = true;
-            this.lblLocation.Location = new System.Drawing.Point(18, 34);
-            this.lblLocation.Name = "lblLocation";
-            this.lblLocation.Size = new System.Drawing.Size(165, 15);
-            this.lblLocation.TabIndex = 0;
-            this.lblLocation.Text = "Location (e.g., \"Austin,TX\"):";
+            this.lblSearchState.AutoSize = true;
+            this.lblSearchState.Location = new System.Drawing.Point(250, 34);
+            this.lblSearchState.Name = "lblSearchState";
+            this.lblSearchState.Size = new System.Drawing.Size(36, 15);
+            this.lblSearchState.TabIndex = 2;
+            this.lblSearchState.Text = "State:";
+            //
+            // txtSearchCity
+            //
+            this.txtSearchCity.Location = new System.Drawing.Point(18, 52);
+            this.txtSearchCity.Name = "txtSearchCity";
+            this.txtSearchCity.Size = new System.Drawing.Size(210, 23);
+            this.txtSearchCity.TabIndex = 1;
+            this.txtSearchCity.Text = "Austin";
+            //
+            // lblSearchCity
+            //
+            this.lblSearchCity.AutoSize = true;
+            this.lblSearchCity.Location = new System.Drawing.Point(18, 34);
+            this.lblSearchCity.Name = "lblSearchCity";
+            this.lblSearchCity.Size = new System.Drawing.Size(31, 15);
+            this.lblSearchCity.TabIndex = 0;
+            this.lblSearchCity.Text = "City:";
             //
             // btnSearch
             //
@@ -538,12 +545,13 @@ namespace JobApi.TestGui
         private System.Windows.Forms.TextBox txtPrompt;
         private System.Windows.Forms.Label lblNumJobs;
         private System.Windows.Forms.TextBox txtNumJobs;
-        private System.Windows.Forms.CheckBox chkRemote;
         private System.Windows.Forms.Label lblDays;
         private System.Windows.Forms.TextBox txtDays;
         private System.Windows.Forms.GroupBox grpFilter;
-        private System.Windows.Forms.Label lblLocation;
-        private System.Windows.Forms.TextBox txtLocation;
+        private System.Windows.Forms.Label lblSearchCity;
+        private System.Windows.Forms.TextBox txtSearchCity;
+        private System.Windows.Forms.Label lblSearchState;
+        private System.Windows.Forms.TextBox txtSearchState;
         private System.Windows.Forms.Label lblMiles;
         private System.Windows.Forms.TextBox txtMiles;
         private System.Windows.Forms.CheckBox chkOnsite;

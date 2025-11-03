@@ -119,7 +119,7 @@ public class ApiGatewayHandler
 
             if (searchRequest == null)
             {
-                return CreateResponse(400, new { message = "Request body is missing or invalid JSON. Expected format: {\"prompt\": \"...\", \"numJobs\": 10, \"includeRemote\": true, \"filters\": [...]}" });
+                return CreateResponse(400, new { message = "Request body is missing or invalid JSON. Expected format: {\"prompt\": \"...\", \"numJobs\": 10, \"city\": \"Austin\", \"state\": \"TX\", \"miles\": 20, \"includeOnsite\": true, \"includeHybrid\": true}" });
             }
 
             // Validate prompt
@@ -149,62 +149,43 @@ public class ApiGatewayHandler
                 return CreateResponse(400, new { message = $"numJobs cannot exceed 100 (received: {searchRequest.NumJobs})" });
             }
 
-            // Validate filters (0-10 allowed, can be empty if includeRemote is true)
-            if (searchRequest.Filters.Count > 10)
+            // Validate at least one workplace type is selected
+            if (!searchRequest.IncludeOnsite && !searchRequest.IncludeHybrid)
             {
-                return CreateResponse(400, new { message = $"Maximum 10 location filters allowed (received: {searchRequest.Filters.Count} filters)" });
+                return CreateResponse(400, new { message = "At least one of 'includeOnsite' or 'includeHybrid' must be true. Current values: includeOnsite=false, includeHybrid=false" });
             }
 
-            // Must have either remote or at least one location filter
-            if (!searchRequest.IncludeRemote && searchRequest.Filters.Count == 0)
+            // Validate city is provided
+            if (string.IsNullOrWhiteSpace(searchRequest.City))
             {
-                return CreateResponse(400, new { message = "Must either set includeRemote=true or provide at least one location filter. Cannot search with no workplace types selected." });
+                return CreateResponse(400, new { message = "City is required (e.g., 'Austin')" });
             }
 
-            // Validate each filter
-            for (int i = 0; i < searchRequest.Filters.Count; i++)
+            // Validate state is provided
+            if (string.IsNullOrWhiteSpace(searchRequest.State))
             {
-                var filter = searchRequest.Filters[i];
-
-                if (!filter.IncludeOnsite && !filter.IncludeHybrid)
-                {
-                    return CreateResponse(400, new { message = $"Filter #{i + 1}: At least one of 'includeOnsite' or 'includeHybrid' must be true. Current values: includeOnsite={filter.IncludeOnsite}, includeHybrid={filter.IncludeHybrid}" });
-                }
-
-                if (string.IsNullOrWhiteSpace(filter.Location))
-                {
-                    return CreateResponse(400, new { message = $"Filter #{i + 1}: Location is required and must be in 'City,State' format (e.g., 'Austin,TX')" });
-                }
-
-                // Validate location format (should be "City,State")
-                var parts = filter.Location.Split(',');
-                if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]) || string.IsNullOrWhiteSpace(parts[1]))
-                {
-                    return CreateResponse(400, new { message = $"Filter #{i + 1}: Location must be in 'City,State' format (e.g., 'Austin,TX'). Received: '{filter.Location}'" });
-                }
-
-                if (filter.Miles < 1)
-                {
-                    return CreateResponse(400, new { message = $"Filter #{i + 1}: Miles must be at least 1 (received: {filter.Miles})" });
-                }
-
-                if (filter.Miles > 50)
-                {
-                    return CreateResponse(400, new { message = $"Filter #{i + 1}: Miles cannot exceed 50 (received: {filter.Miles})" });
-                }
+                return CreateResponse(400, new { message = "State is required (e.g., 'TX')" });
             }
 
-            // Validate all locations exist in database
-            if (searchRequest.Filters.Count > 0)
+            // Validate miles
+            if (searchRequest.Miles < 1)
             {
-                var invalidLocation = await ValidateLocationsExist(searchRequest.Filters, context);
-                if (invalidLocation != null)
-                {
-                    return CreateResponse(400, new { message = $"Location '{invalidLocation}' not found in database. Please use the /locations/validate endpoint to verify the location exists and get the correct format (e.g., GET /locations/validate?city=Austin&state=TX)" });
-                }
+                return CreateResponse(400, new { message = $"Miles must be at least 1 (received: {searchRequest.Miles})" });
             }
 
-            context.Logger.LogInformation($"Search request validated: prompt='{searchRequest.Prompt}', numJobs={searchRequest.NumJobs}, includeRemote={searchRequest.IncludeRemote}, filters={searchRequest.Filters.Count}");
+            if (searchRequest.Miles > 20)
+            {
+                return CreateResponse(400, new { message = $"Miles cannot exceed 20 (received: {searchRequest.Miles})" });
+            }
+
+            // Validate location exists in database
+            var locationExists = await ValidateLocationExists(searchRequest.City, searchRequest.State, context);
+            if (!locationExists)
+            {
+                return CreateResponse(400, new { message = $"Location '{searchRequest.City}, {searchRequest.State}' not found in database. Please use the /locations/validate endpoint to verify the location exists and get the correct format (e.g., GET /locations/validate?city=Austin&state=TX)" });
+            }
+
+            context.Logger.LogInformation($"Search request validated: prompt='{searchRequest.Prompt}', numJobs={searchRequest.NumJobs}, location={searchRequest.City},{searchRequest.State}, miles={searchRequest.Miles}, onsite={searchRequest.IncludeOnsite}, hybrid={searchRequest.IncludeHybrid}");
 
             // Call search handler
             var response = await _searchHandler.Search(searchRequest, context);
@@ -311,10 +292,10 @@ public class ApiGatewayHandler
     }
 
     /// <summary>
-    /// Validates that all locations in filters exist in the geolocations database
-    /// Returns the first invalid location found, or null if all are valid
+    /// Validates that a location exists in the geolocations database
+    /// Returns true if location exists, false otherwise
     /// </summary>
-    private async Task<string?> ValidateLocationsExist(List<Models.LocationFilter> filters, ILambdaContext context)
+    private async Task<bool> ValidateLocationExists(string city, string state, ILambdaContext context)
     {
         var host = Environment.GetEnvironmentVariable("DB_HOST") ?? throw new Exception("DB_HOST not set");
         var database = Environment.GetEnvironmentVariable("DB_NAME") ?? throw new Exception("DB_NAME not set");
@@ -325,35 +306,27 @@ public class ApiGatewayHandler
         await using var connection = new Npgsql.NpgsqlConnection(connectionString);
         await connection.OpenAsync();
 
-        foreach (var filter in filters)
+        // Check if location exists in geolocations table
+        var sql = @"
+            SELECT COUNT(*)
+            FROM geolocations
+            WHERE LOWER(city) = LOWER(@city)
+            AND LOWER(state) = LOWER(@state)";
+
+        await using var cmd = new Npgsql.NpgsqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("city", city);
+        cmd.Parameters.AddWithValue("state", state);
+
+        var count = (long)(await cmd.ExecuteScalarAsync() ?? 0);
+
+        if (count == 0)
         {
-            // Parse location "City,State"
-            var parts = filter.Location.Split(',');
-            var city = parts[0].Trim();
-            var state = parts[1].Trim();
-
-            // Check if location exists in geolocations table
-            var sql = @"
-                SELECT COUNT(*)
-                FROM geolocations
-                WHERE LOWER(city) = LOWER(@city)
-                AND LOWER(state) = LOWER(@state)";
-
-            await using var cmd = new Npgsql.NpgsqlCommand(sql, connection);
-            cmd.Parameters.AddWithValue("city", city);
-            cmd.Parameters.AddWithValue("state", state);
-
-            var count = (long)(await cmd.ExecuteScalarAsync() ?? 0);
-
-            if (count == 0)
-            {
-                context.Logger.LogWarning($"Location validation failed: '{filter.Location}' not found in database");
-                return filter.Location;
-            }
+            context.Logger.LogWarning($"Location validation failed: '{city}, {state}' not found in database");
+            return false;
         }
 
-        context.Logger.LogInformation($"All {filters.Count} location(s) validated successfully");
-        return null;
+        context.Logger.LogInformation($"Location '{city}, {state}' validated successfully");
+        return true;
     }
 
     private APIGatewayProxyResponse CreateResponse(int statusCode, object body)

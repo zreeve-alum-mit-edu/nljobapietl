@@ -35,33 +35,48 @@ public partial class Form1 : Form
                 return;
             }
 
-            // Build filters
-            var filters = new List<object>();
-            if (!string.IsNullOrWhiteSpace(txtLocation.Text))
+            // Validate city input
+            if (string.IsNullOrWhiteSpace(txtSearchCity.Text))
             {
-                if (!int.TryParse(txtMiles.Text, out int miles) || miles < 1)
-                {
-                    MessageBox.Show("Miles must be at least 1", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
-                }
-
-                filters.Add(new
-                {
-                    includeOnsite = chkOnsite.Checked,
-                    includeHybrid = chkHybrid.Checked,
-                    location = txtLocation.Text,
-                    miles = miles
-                });
+                MessageBox.Show("City is required (e.g., Austin)", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
             }
 
-            // Build request
+            // Validate state input
+            if (string.IsNullOrWhiteSpace(txtSearchState.Text))
+            {
+                MessageBox.Show("State is required (e.g., TX)", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var city = txtSearchCity.Text.Trim();
+            var state = txtSearchState.Text.Trim();
+
+            // Validate miles
+            if (!int.TryParse(txtMiles.Text, out int miles) || miles < 1 || miles > 20)
+            {
+                MessageBox.Show("Miles must be between 1 and 20", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Validate at least one workplace type is selected
+            if (!chkOnsite.Checked && !chkHybrid.Checked)
+            {
+                MessageBox.Show("At least one of Onsite or Hybrid must be checked", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Build request with flattened structure
             var request = new
             {
                 prompt = txtPrompt.Text,
                 numJobs = numJobs,
-                includeRemote = chkRemote.Checked,
-                daysSincePosting = string.IsNullOrWhiteSpace(txtDays.Text) ? (int?)null : int.Parse(txtDays.Text),
-                filters = filters
+                city = city,
+                state = state,
+                miles = miles,
+                includeOnsite = chkOnsite.Checked,
+                includeHybrid = chkHybrid.Checked,
+                daysSincePosting = string.IsNullOrWhiteSpace(txtDays.Text) ? (int?)null : int.Parse(txtDays.Text)
             };
 
             // Send request
@@ -110,10 +125,10 @@ public partial class Form1 : Form
     {
         txtPrompt.Clear();
         txtNumJobs.Text = "10";
-        chkRemote.Checked = true;
         txtDays.Clear();
-        txtLocation.Clear();
-        txtMiles.Text = "50";
+        txtSearchCity.Text = "Austin";
+        txtSearchState.Text = "TX";
+        txtMiles.Text = "20";
         chkOnsite.Checked = true;
         chkHybrid.Checked = true;
         txtResults.Clear();
