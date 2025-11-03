@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Pgvector;
 
 namespace JobApi.Common.Entities;
 
@@ -135,9 +134,6 @@ public class Job
     [Column("generated_country")]
     [MaxLength(2)]
     public string? GeneratedCountry { get; set; }
-
-    [Column("embedding")]
-    public Vector? Embedding { get; set; }
 
     // Navigation property
     [ForeignKey("FileId")]

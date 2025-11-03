@@ -10,6 +10,7 @@ public class JobContext : DbContext
     }
 
     public DbSet<Job> Jobs { get; set; }
+    public DbSet<JobEmbedding> JobEmbeddings { get; set; }
     public DbSet<Entities.File> Files { get; set; }
     public DbSet<WorkplaceBatch> WorkplaceBatches { get; set; }
     public DbSet<LocationBatch> LocationBatches { get; set; }
@@ -50,15 +51,6 @@ public class JobContext : DbContext
             entity.HasIndex(e => e.JobUrl)
                 .IsUnique()
                 .HasFilter("job_url IS NOT NULL");
-
-            // Configure the embedding vector column (1536 dimensions for text-embedding-3-small)
-            entity.Property(e => e.Embedding)
-                .HasColumnType("vector(1536)");
-
-            // Create HNSW index for fast vector similarity search
-            entity.HasIndex(e => e.Embedding)
-                .HasMethod("hnsw")
-                .HasOperators("vector_cosine_ops");
 
             // Configure relationship
             entity.HasOne(e => e.File)
@@ -119,6 +111,27 @@ public class JobContext : DbContext
 
             entity.Property(e => e.Longitude)
                 .HasPrecision(10, 7);
+        });
+
+        // JobEmbedding entity configuration
+        modelBuilder.Entity<JobEmbedding>(entity =>
+        {
+            entity.HasKey(e => e.JobId);
+
+            // Configure the embedding vector column (1536 dimensions for text-embedding-3-small)
+            entity.Property(e => e.Embedding)
+                .HasColumnType("vector(1536)");
+
+            // Create HNSW index for fast vector similarity search
+            entity.HasIndex(e => e.Embedding)
+                .HasMethod("hnsw")
+                .HasOperators("vector_cosine_ops");
+
+            // Configure relationship with cascade delete
+            entity.HasOne(e => e.Job)
+                .WithOne()
+                .HasForeignKey<JobEmbedding>(e => e.JobId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 

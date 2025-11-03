@@ -235,23 +235,24 @@ public class SearchHandler
             ? $"AND date_posted >= NOW() - INTERVAL '{daysSincePosting.Value} days'"
             : "";
 
-        // Build complete SQL query
+        // Build complete SQL query - JOIN with job_embeddings table
         var sql = $@"
             SELECT
-                id,
-                job_title,
-                company_name,
-                job_description,
-                generated_workplace,
-                generated_workplace_confidence,
-                generated_city,
-                generated_state,
-                job_url,
-                date_posted,
-                (embedding <=> @embedding::vector) as similarity_score
-            FROM jobs
-            WHERE status = 'embedded'
-                AND is_valid = true
+                j.id,
+                j.job_title,
+                j.company_name,
+                j.job_description,
+                j.generated_workplace,
+                j.generated_workplace_confidence,
+                j.generated_city,
+                j.generated_state,
+                j.job_url,
+                j.date_posted,
+                (je.embedding <=> @embedding::vector) as similarity_score
+            FROM jobs j
+            INNER JOIN job_embeddings je ON j.id = je.job_id
+            WHERE j.status = 'embedded'
+                AND j.is_valid = true
                 {dateFilter}
                 AND ({whereClause})
             ORDER BY similarity_score ASC

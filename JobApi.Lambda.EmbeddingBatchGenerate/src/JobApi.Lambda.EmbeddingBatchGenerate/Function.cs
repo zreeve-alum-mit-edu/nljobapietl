@@ -46,11 +46,11 @@ public class Function
 
         await using var countCmd = new NpgsqlCommand(@"
             SELECT COUNT(*)
-            FROM jobs
-            WHERE embedding IS NULL
-              AND is_valid = true
-              AND generated_country = 'US'
-              AND status != 'embedding_batch_sent'", conn);
+            FROM jobs j
+            WHERE NOT EXISTS (SELECT 1 FROM job_embeddings je WHERE je.job_id = j.id)
+              AND j.is_valid = true
+              AND j.generated_country = 'US'
+              AND j.status != 'embedding_batch_sent'", conn);
 
         var totalCount = (long)(await countCmd.ExecuteScalarAsync() ?? 0L);
 
@@ -76,13 +76,13 @@ public class Function
             var jobs = new List<EmbeddingBatchData>();
 
             await using (var cmd = new NpgsqlCommand(@"
-                SELECT id, job_title, job_description
-                FROM jobs
-                WHERE embedding IS NULL
-                  AND is_valid = true
-                  AND generated_country = 'US'
-                  AND status != 'embedding_batch_sent'
-                ORDER BY id
+                SELECT j.id, j.job_title, j.job_description
+                FROM jobs j
+                WHERE NOT EXISTS (SELECT 1 FROM job_embeddings je WHERE je.job_id = j.id)
+                  AND j.is_valid = true
+                  AND j.generated_country = 'US'
+                  AND j.status != 'embedding_batch_sent'
+                ORDER BY j.id
                 LIMIT @limit OFFSET @offset", conn))
             {
                 cmd.Parameters.AddWithValue("limit", chunkSize);

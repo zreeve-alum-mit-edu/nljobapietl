@@ -145,7 +145,7 @@ public class Function
         // Create temp table once per transaction and set synchronous_commit off
         const string initSql = @"
             CREATE TEMP TABLE IF NOT EXISTS tmp_embeddings (
-                id uuid PRIMARY KEY,
+                job_id uuid PRIMARY KEY,
                 embedding vector(1536)
             ) ON COMMIT PRESERVE ROWS;
             SET LOCAL synchronous_commit = off;";
@@ -302,7 +302,7 @@ public class Function
         // COPY (binary) is orders of magnitude faster than text literals
         var copyTimer = System.Diagnostics.Stopwatch.StartNew();
         await using (var writer = await conn.BeginBinaryImportAsync(
-            "COPY tmp_embeddings (id, embedding) FROM STDIN (FORMAT BINARY)"))
+            "COPY tmp_embeddings (job_id, embedding) FROM STDIN (FORMAT BINARY)"))
         {
             foreach (var (id, emb) in rows)
             {
@@ -316,22 +316,27 @@ public class Function
         copyTimer.Stop();
         context.Logger.LogInformation($"[PERF] COPY took {copyTimer.ElapsedMilliseconds}ms for {rows.Count} rows");
 
-        // Single join update; the `AND j.embedding IS NULL` keeps it idempotent
+        // INSERT into job_embeddings and UPDATE jobs.status
+        // Uses ON CONFLICT DO NOTHING for idempotency
         var updateTimer = System.Diagnostics.Stopwatch.StartNew();
-        const string updateSql = @"
-            UPDATE jobs j
-            SET embedding = t.embedding,
-                status   = 'embedded'
+        const string insertSql = @"
+            INSERT INTO job_embeddings (job_id, embedding)
+            SELECT t.job_id, t.embedding
             FROM tmp_embeddings t
-            WHERE j.id = t.id
-              AND j.embedding IS NULL;";
+            ON CONFLICT (job_id) DO NOTHING;
 
-        await using (var cmd = new NpgsqlCommand(updateSql, conn, tx))
+            UPDATE jobs j
+            SET status = 'embedded'
+            FROM tmp_embeddings t
+            WHERE j.id = t.job_id
+              AND j.status != 'embedded';";
+
+        await using (var cmd = new NpgsqlCommand(insertSql, conn, tx))
         {
             cmd.CommandTimeout = 180; // 3 minutes
             var rowsAffected = await cmd.ExecuteNonQueryAsync();
             updateTimer.Stop();
-            context.Logger.LogInformation($"[PERF] UPDATE took {updateTimer.ElapsedMilliseconds}ms, affected {rowsAffected} rows");
+            context.Logger.LogInformation($"[PERF] INSERT/UPDATE took {updateTimer.ElapsedMilliseconds}ms, affected {rowsAffected} rows");
         }
 
         totalTimer.Stop();
