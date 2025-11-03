@@ -79,3 +79,37 @@ WHERE status = 'llm_batches_generated';
 - Always quote the password and SQL queries
 - The jobs table does NOT have a workplace_batch_id column
 - The workplace_batches table tracks batch metadata separately
+
+## API Gateway Configuration
+
+**CRITICAL: ALWAYS use the correct API Gateway for this project!**
+
+### Correct API Gateway (NL Job Search API)
+```
+API Name: nl-job-search-api
+API ID: 42r7s00kck
+Endpoint: https://42r7s00kck.execute-api.us-east-2.amazonaws.com
+Lambda: NLJobSearch
+```
+
+**Available Routes:**
+- `POST /search` - General job search with location filters
+- `POST /search/remote` - Remote-only job search (uses partial HNSW index)
+- `GET /locations/validate` - Validate city/state exists in database
+
+### DO NOT TOUCH THIS GATEWAY
+```
+API Name: JobSearchAPI
+API ID: 5ienh79xjf
+Endpoint: https://5ienh79xjf.execute-api.us-east-2.amazonaws.com
+⚠️ THIS BELONGS TO A DIFFERENT PROJECT - DO NOT MODIFY OR USE FOR TESTING ⚠️
+```
+
+**Testing the API:**
+```bash
+# Test remote search endpoint
+curl -X POST "https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search/remote" \
+  -H "x-api-key: HHTnWCCgx2uCP7Ia3ZVB80SI6lviPPK0gR7eG8Ne" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"senior software engineer","numJobs":5}'
+```
