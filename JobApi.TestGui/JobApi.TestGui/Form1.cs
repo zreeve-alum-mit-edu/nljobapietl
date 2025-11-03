@@ -6,6 +6,7 @@ namespace JobApi.TestGui;
 public partial class Form1 : Form
 {
     private const string SearchApiUrl = "https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search";
+    private const string RemoteSearchApiUrl = "https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search/remote";
     private const string LocationApiUrl = "https://42r7s00kck.execute-api.us-east-2.amazonaws.com/locations/validate";
     private const string ApiKey = "HHTnWCCgx2uCP7Ia3ZVB80SI6lviPPK0gR7eG8Ne";
 
@@ -174,5 +175,70 @@ public partial class Form1 : Form
         txtState.Clear();
         txtCountry.Text = "US";
         txtLocationResults.Clear();
+    }
+
+    private async void btnSearchRemote_Click(object sender, EventArgs e)
+    {
+        try
+        {
+            btnSearchRemote.Enabled = false;
+            txtRemoteResults.Text = "Searching...";
+
+            // Validate inputs
+            if (string.IsNullOrWhiteSpace(txtRemotePrompt.Text))
+            {
+                MessageBox.Show("Prompt is required", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (!int.TryParse(txtRemoteNumJobs.Text, out int numJobs) || numJobs < 1 || numJobs > 100)
+            {
+                MessageBox.Show("NumJobs must be between 1 and 100", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Build request (only remote jobs, no location filters needed)
+            var request = new
+            {
+                prompt = txtRemotePrompt.Text,
+                numJobs = numJobs,
+                daysSincePosting = string.IsNullOrWhiteSpace(txtRemoteDays.Text) ? (int?)null : int.Parse(txtRemoteDays.Text)
+            };
+
+            // Send request
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Add("x-api-key", ApiKey);
+            client.Timeout = TimeSpan.FromSeconds(60);
+
+            var json = JsonSerializer.Serialize(request, new JsonSerializerOptions { WriteIndented = true });
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            txtRemoteResults.Text = $"Request:\n{json}\n\nSending to /search/remote...";
+            Application.DoEvents();
+
+            var response = await client.PostAsync(RemoteSearchApiUrl, content);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            // Format response
+            var formattedResponse = FormatJsonResponse(responseBody);
+            txtRemoteResults.Text = $"Request:\n{json}\n\n---\n\nResponse ({response.StatusCode}):\n{formattedResponse}";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            txtRemoteResults.Text += $"\n\nError: {ex.Message}";
+        }
+        finally
+        {
+            btnSearchRemote.Enabled = true;
+        }
+    }
+
+    private void btnClearRemote_Click(object sender, EventArgs e)
+    {
+        txtRemotePrompt.Text = "senior software engineer with Python and AWS experience";
+        txtRemoteNumJobs.Text = "10";
+        txtRemoteDays.Clear();
+        txtRemoteResults.Clear();
     }
 }
