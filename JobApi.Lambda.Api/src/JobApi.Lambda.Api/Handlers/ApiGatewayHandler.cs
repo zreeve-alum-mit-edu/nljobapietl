@@ -9,12 +9,14 @@ namespace JobApi.Lambda.Api.Handlers;
 public class ApiGatewayHandler
 {
     private readonly SearchHandler _searchHandler;
+    private readonly RemoteSearchHandler _remoteSearchHandler;
     private readonly LocationHandler _locationHandler;
     private readonly HashSet<string> _apiKeys;
 
     public ApiGatewayHandler()
     {
         _searchHandler = new SearchHandler();
+        _remoteSearchHandler = new RemoteSearchHandler();
         _locationHandler = new LocationHandler();
 
         // Support multiple API keys (comma-separated in API_KEYS environment variable)
@@ -68,6 +70,10 @@ public class ApiGatewayHandler
             if (path.EndsWith("/search") && method == "POST")
             {
                 return await HandleSearchRequest(request, context);
+            }
+            else if (path.EndsWith("/search/remote") && method == "POST")
+            {
+                return await HandleRemoteSearchRequest(request, context);
             }
             else if (path.EndsWith("/locations/validate") && method == "GET")
             {
@@ -202,6 +208,66 @@ public class ApiGatewayHandler
 
             // Call search handler
             var response = await _searchHandler.Search(searchRequest, context);
+
+            return CreateResponse(200, response);
+        }
+        catch (Handlers.OpenAIServiceException ex)
+        {
+            context.Logger.LogError($"OpenAI service failure: {ex.Message}");
+            return CreateResponse(503, new { message = ex.Message });
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            context.Logger.LogError($"JSON parsing error: {ex.Message}");
+            return CreateResponse(400, new { message = $"Invalid JSON in request body: {ex.Message}. Please verify your JSON syntax." });
+        }
+    }
+
+    private async Task<APIGatewayProxyResponse> HandleRemoteSearchRequest(
+        APIGatewayProxyRequest request,
+        ILambdaContext context)
+    {
+        try
+        {
+            // Deserialize request body
+            var searchRequest = System.Text.Json.JsonSerializer.Deserialize<Models.RemoteSearchRequest>(request.Body ?? "");
+
+            if (searchRequest == null)
+            {
+                return CreateResponse(400, new { message = "Request body is missing or invalid JSON. Expected format: {\"prompt\": \"...\", \"numJobs\": 10, \"daysSincePosting\": 30}" });
+            }
+
+            // Validate prompt
+            if (string.IsNullOrWhiteSpace(searchRequest.Prompt))
+            {
+                return CreateResponse(400, new { message = "Prompt is required and cannot be empty. Provide a natural language job description (e.g., 'senior software engineer with Python experience')" });
+            }
+
+            if (searchRequest.Prompt.Length < 10)
+            {
+                return CreateResponse(400, new { message = $"Prompt must be at least 10 characters long (received: {searchRequest.Prompt.Length} characters)" });
+            }
+
+            if (searchRequest.Prompt.Length > 20000)
+            {
+                return CreateResponse(400, new { message = $"Prompt cannot exceed 20,000 characters (received: {searchRequest.Prompt.Length} characters)" });
+            }
+
+            // Validate numJobs
+            if (searchRequest.NumJobs < 1)
+            {
+                return CreateResponse(400, new { message = $"numJobs must be at least 1 (received: {searchRequest.NumJobs})" });
+            }
+
+            if (searchRequest.NumJobs > 100)
+            {
+                return CreateResponse(400, new { message = $"numJobs cannot exceed 100 (received: {searchRequest.NumJobs})" });
+            }
+
+            context.Logger.LogInformation($"Remote search request validated: prompt='{searchRequest.Prompt}', numJobs={searchRequest.NumJobs}, daysSince={searchRequest.DaysSincePosting}");
+
+            // Call remote search handler
+            var response = await _remoteSearchHandler.SearchRemote(searchRequest, context);
 
             return CreateResponse(200, response);
         }
