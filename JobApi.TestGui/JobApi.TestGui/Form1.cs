@@ -184,17 +184,12 @@ public partial class Form1 : Form
             btnSearchRemote.Enabled = false;
             txtRemoteResults.Text = "Searching...";
 
-            // Validate inputs
-            if (string.IsNullOrWhiteSpace(txtRemotePrompt.Text))
+            // No validation - let the API validate
+            int.TryParse(txtRemoteNumJobs.Text, out int numJobs);
+            int? daysSincePosting = null;
+            if (!string.IsNullOrWhiteSpace(txtRemoteDays.Text) && int.TryParse(txtRemoteDays.Text, out int days))
             {
-                MessageBox.Show("Prompt is required", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            if (!int.TryParse(txtRemoteNumJobs.Text, out int numJobs) || numJobs < 1 || numJobs > 100)
-            {
-                MessageBox.Show("NumJobs must be between 1 and 100", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
+                daysSincePosting = days;
             }
 
             // Build request (only remote jobs, no location filters needed)
@@ -202,7 +197,7 @@ public partial class Form1 : Form
             {
                 prompt = txtRemotePrompt.Text,
                 numJobs = numJobs,
-                daysSincePosting = string.IsNullOrWhiteSpace(txtRemoteDays.Text) ? (int?)null : int.Parse(txtRemoteDays.Text)
+                daysSincePosting = daysSincePosting
             };
 
             // Send request
