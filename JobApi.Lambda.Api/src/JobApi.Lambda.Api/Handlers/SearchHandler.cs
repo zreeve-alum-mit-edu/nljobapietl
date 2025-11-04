@@ -1,7 +1,9 @@
 using Amazon.Lambda.Core;
+using JobApi.Lambda.Api.Helpers;
 using JobApi.Lambda.Api.Models;
 using Npgsql;
 using Pgvector;
+using System.Diagnostics;
 
 namespace JobApi.Lambda.Api.Handlers;
 
@@ -9,6 +11,7 @@ public class SearchHandler
 {
     private readonly string _connectionString;
     private readonly string _openAiApiKey;
+    private readonly AuditLogger _auditLogger;
 
     public SearchHandler()
     {
@@ -19,6 +22,7 @@ public class SearchHandler
 
         _connectionString = $"Host={host};Database={database};Username={username};Password={password}";
         _openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? throw new Exception("OPENAI_API_KEY not set");
+        _auditLogger = new AuditLogger(_connectionString);
     }
 
     /// <summary>
@@ -26,37 +30,103 @@ public class SearchHandler
     /// </summary>
     public async Task<SearchResponse> Search(SearchRequest request, ILambdaContext context)
     {
+        var startTime = DateTime.UtcNow;
+        var embeddingDurationMs = 0;
+        var databaseDurationMs = 0;
+        var numJobsFiltered = 0;
+        var statusCode = 200;
+        string? errorMessage = null;
+
         context.Logger.LogInformation($"Starting search: prompt='{request.Prompt}', numJobs={request.NumJobs}, location={request.City},{request.State}, miles={request.Miles}, onsite={request.IncludeOnsite}, hybrid={request.IncludeHybrid}, daysSince={request.DaysSincePosting}");
 
-        // Step 1: Create embedding from prompt using OpenAI API
-        float[] embedding;
         try
         {
-            embedding = await CreateEmbedding(request.Prompt, context);
+            // Step 1: Create embedding from prompt using OpenAI API
+            float[] embedding;
+            var embeddingStopwatch = Stopwatch.StartNew();
+            try
+            {
+                embedding = await CreateEmbedding(request.Prompt, context);
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogError($"Failed to create embedding: {ex.Message}");
+                errorMessage = $"Unable to create embedding from OpenAI API: {ex.Message}";
+                statusCode = 500;
+                throw new OpenAIServiceException("Unable to create embedding from OpenAI API. This is a temporary service issue. Please try again in a few moments.");
+            }
+            finally
+            {
+                embeddingStopwatch.Stop();
+                embeddingDurationMs = (int)embeddingStopwatch.ElapsedMilliseconds;
+            }
+
+            // Step 2: Connect to database
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            // Step 3: Get coordinates for location
+            var (lat, lon) = await GetCoordinates(connection, request.City, request.State, context);
+
+            // Step 4: Execute vector similarity search query with exact KNN
+            var databaseStopwatch = Stopwatch.StartNew();
+            var (jobs, filteredCount) = await SearchJobs(connection, embedding, request, lat, lon, context);
+            databaseStopwatch.Stop();
+            databaseDurationMs = (int)databaseStopwatch.ElapsedMilliseconds;
+            numJobsFiltered = filteredCount;
+
+            context.Logger.LogInformation($"Search completed: found {jobs.Count} jobs");
+
+            var response = new SearchResponse
+            {
+                Jobs = jobs,
+                TotalCount = jobs.Count
+            };
+
+            // Log audit entry
+            await _auditLogger.LogSearchAudit(
+                endpoint: "/search",
+                startTime: startTime,
+                endTime: DateTime.UtcNow,
+                embeddingDurationMs: embeddingDurationMs,
+                databaseDurationMs: databaseDurationMs,
+                request: request,
+                numResultsReturned: jobs.Count,
+                numJobsFiltered: numJobsFiltered,
+                statusCode: statusCode,
+                errorMessage: errorMessage,
+                lambdaRequestId: context.AwsRequestId,
+                context: context
+            );
+
+            return response;
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Failed to create embedding: {ex.Message}");
-            throw new OpenAIServiceException("Unable to create embedding from OpenAI API. This is a temporary service issue. Please try again in a few moments.");
+            // Log failed request
+            if (errorMessage == null)
+            {
+                errorMessage = ex.Message;
+                statusCode = 500;
+            }
+
+            await _auditLogger.LogSearchAudit(
+                endpoint: "/search",
+                startTime: startTime,
+                endTime: DateTime.UtcNow,
+                embeddingDurationMs: embeddingDurationMs,
+                databaseDurationMs: databaseDurationMs,
+                request: request,
+                numResultsReturned: 0,
+                numJobsFiltered: numJobsFiltered,
+                statusCode: statusCode,
+                errorMessage: errorMessage,
+                lambdaRequestId: context.AwsRequestId,
+                context: context
+            );
+
+            throw;
         }
-
-        // Step 2: Connect to database
-        await using var connection = new NpgsqlConnection(_connectionString);
-        await connection.OpenAsync();
-
-        // Step 3: Get coordinates for location
-        var (lat, lon) = await GetCoordinates(connection, request.City, request.State, context);
-
-        // Step 4: Execute vector similarity search query with exact KNN
-        var jobs = await SearchJobs(connection, embedding, request, lat, lon, context);
-
-        context.Logger.LogInformation($"Search completed: found {jobs.Count} jobs");
-
-        return new SearchResponse
-        {
-            Jobs = jobs,
-            TotalCount = jobs.Count
-        };
     }
 
     /// <summary>
@@ -141,8 +211,9 @@ public class SearchHandler
 
     /// <summary>
     /// Executes the vector similarity search query using exact KNN with MATERIALIZED CTE
+    /// Returns both the job results and the count of jobs that passed the filter
     /// </summary>
-    private async Task<List<JobResult>> SearchJobs(
+    private async Task<(List<JobResult> jobs, int filteredCount)> SearchJobs(
         NpgsqlConnection connection,
         float[] embedding,
         SearchRequest request,
@@ -183,6 +254,9 @@ public class SearchHandler
                         @distance
                     )
                     {dateFilter}
+            ),
+            base_count AS (
+                SELECT COUNT(*) as total FROM base
             )
             SELECT
                 j.id,
@@ -195,7 +269,8 @@ public class SearchHandler
                 j.generated_state,
                 j.job_url,
                 j.date_posted,
-                (e.embedding <=> @embedding::vector) AS similarity_score
+                (e.embedding <=> @embedding::vector) AS similarity_score,
+                (SELECT total FROM base_count) AS filtered_count
             FROM base b
             JOIN job_embeddings e ON e.job_id = b.id
             JOIN jobs j ON j.id = b.id
@@ -213,6 +288,7 @@ public class SearchHandler
         cmd.Parameters.AddWithValue("limit", request.NumJobs);
 
         var jobs = new List<JobResult>();
+        var filteredCount = 0;
 
         await using var reader = await cmd.ExecuteReaderAsync();
 
@@ -238,12 +314,18 @@ public class SearchHandler
                 DatePosted = reader.IsDBNull(9) ? null : reader.GetDateTime(9)
             };
 
+            // Get filtered count from first row
+            if (jobs.Count == 0)
+            {
+                filteredCount = reader.IsDBNull(11) ? 0 : Convert.ToInt32(reader.GetInt64(11));
+            }
+
             jobs.Add(job);
         }
 
-        context.Logger.LogInformation($"Query returned {jobs.Count} jobs");
+        context.Logger.LogInformation($"Query returned {jobs.Count} jobs from {filteredCount} filtered jobs");
 
-        return jobs;
+        return (jobs, filteredCount);
     }
 
     /// <summary>

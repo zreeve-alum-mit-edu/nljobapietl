@@ -1,6 +1,8 @@
 using Amazon.Lambda.Core;
+using JobApi.Lambda.Api.Helpers;
 using JobApi.Lambda.Api.Models;
 using Npgsql;
+using System.Diagnostics;
 
 namespace JobApi.Lambda.Api.Handlers;
 
@@ -9,6 +11,7 @@ public class RemoteSearchHandler
     private readonly string _connectionString;
     private readonly string _openAiApiKey;
     private readonly int _hnswEfSearch;
+    private readonly AuditLogger _auditLogger;
 
     public RemoteSearchHandler()
     {
@@ -20,6 +23,7 @@ public class RemoteSearchHandler
         _connectionString = $"Host={host};Database={database};Username={username};Password={password}";
         _openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? throw new Exception("OPENAI_API_KEY not set");
         _hnswEfSearch = int.Parse(Environment.GetEnvironmentVariable("HNSW_EF_SEARCH") ?? "200");
+        _auditLogger = new AuditLogger(_connectionString);
     }
 
     /// <summary>
@@ -27,37 +31,103 @@ public class RemoteSearchHandler
     /// </summary>
     public async Task<SearchResponse> SearchRemote(RemoteSearchRequest request, ILambdaContext context)
     {
+        var startTime = DateTime.UtcNow;
+        var embeddingDurationMs = 0;
+        var databaseDurationMs = 0;
+        var numJobsFiltered = 0;
+        var statusCode = 200;
+        string? errorMessage = null;
+
         context.Logger.LogInformation($"Starting remote search: prompt='{request.Prompt}', numJobs={request.NumJobs}, daysSince={request.DaysSincePosting}");
 
-        // Step 1: Create embedding from prompt using OpenAI API
-        float[] embedding;
         try
         {
-            embedding = await CreateEmbedding(request.Prompt, context);
+            // Step 1: Create embedding from prompt using OpenAI API
+            float[] embedding;
+            var embeddingStopwatch = Stopwatch.StartNew();
+            try
+            {
+                embedding = await CreateEmbedding(request.Prompt, context);
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogError($"Failed to create embedding: {ex.Message}");
+                errorMessage = $"Unable to create embedding from OpenAI API: {ex.Message}";
+                statusCode = 500;
+                throw new OpenAIServiceException("Unable to create embedding from OpenAI API. This is a temporary service issue. Please try again in a few moments.");
+            }
+            finally
+            {
+                embeddingStopwatch.Stop();
+                embeddingDurationMs = (int)embeddingStopwatch.ElapsedMilliseconds;
+            }
+
+            // Step 2: Connect to database
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            // Step 3: **CRITICAL**: SET hnsw.ef_search for vector similarity performance
+            await SetHnswEfSearch(connection, context);
+
+            // Step 4: Execute vector similarity search query for remote jobs
+            var databaseStopwatch = Stopwatch.StartNew();
+            var (jobs, filteredCount) = await SearchRemoteJobs(connection, embedding, request.NumJobs, request.DaysSincePosting, context);
+            databaseStopwatch.Stop();
+            databaseDurationMs = (int)databaseStopwatch.ElapsedMilliseconds;
+            numJobsFiltered = filteredCount;
+
+            context.Logger.LogInformation($"Remote search completed: found {jobs.Count} jobs");
+
+            var response = new SearchResponse
+            {
+                Jobs = jobs,
+                TotalCount = jobs.Count
+            };
+
+            // Log audit entry
+            await _auditLogger.LogRemoteSearchAudit(
+                endpoint: "/search/remote",
+                startTime: startTime,
+                endTime: DateTime.UtcNow,
+                embeddingDurationMs: embeddingDurationMs,
+                databaseDurationMs: databaseDurationMs,
+                request: request,
+                numResultsReturned: jobs.Count,
+                numJobsFiltered: numJobsFiltered,
+                statusCode: statusCode,
+                errorMessage: errorMessage,
+                lambdaRequestId: context.AwsRequestId,
+                context: context
+            );
+
+            return response;
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"Failed to create embedding: {ex.Message}");
-            throw new OpenAIServiceException("Unable to create embedding from OpenAI API. This is a temporary service issue. Please try again in a few moments.");
+            // Log failed request
+            if (errorMessage == null)
+            {
+                errorMessage = ex.Message;
+                statusCode = 500;
+            }
+
+            await _auditLogger.LogRemoteSearchAudit(
+                endpoint: "/search/remote",
+                startTime: startTime,
+                endTime: DateTime.UtcNow,
+                embeddingDurationMs: embeddingDurationMs,
+                databaseDurationMs: databaseDurationMs,
+                request: request,
+                numResultsReturned: 0,
+                numJobsFiltered: numJobsFiltered,
+                statusCode: statusCode,
+                errorMessage: errorMessage,
+                lambdaRequestId: context.AwsRequestId,
+                context: context
+            );
+
+            throw;
         }
-
-        // Step 2: Connect to database
-        await using var connection = new NpgsqlConnection(_connectionString);
-        await connection.OpenAsync();
-
-        // Step 3: **CRITICAL**: SET hnsw.ef_search for vector similarity performance
-        await SetHnswEfSearch(connection, context);
-
-        // Step 4: Execute vector similarity search query for remote jobs
-        var jobs = await SearchRemoteJobs(connection, embedding, request.NumJobs, request.DaysSincePosting, context);
-
-        context.Logger.LogInformation($"Remote search completed: found {jobs.Count} jobs");
-
-        return new SearchResponse
-        {
-            Jobs = jobs,
-            TotalCount = jobs.Count
-        };
     }
 
     /// <summary>
@@ -153,8 +223,9 @@ public class RemoteSearchHandler
 
     /// <summary>
     /// Executes the vector similarity search query for remote jobs only
+    /// Returns both the job results and the count of jobs that passed the filter
     /// </summary>
-    private async Task<List<JobResult>> SearchRemoteJobs(
+    private async Task<(List<JobResult> jobs, int filteredCount)> SearchRemoteJobs(
         NpgsqlConnection connection,
         float[] embedding,
         int limit,
@@ -169,35 +240,53 @@ public class RemoteSearchHandler
             : "";
 
         // Build complete SQL query - filter on job_embeddings.generated_workplace for index usage
+        // Include filtered count using window function
         var sql = $@"
+            WITH filtered_jobs AS (
+                SELECT
+                    j.id,
+                    j.job_title,
+                    j.company_name,
+                    j.job_description,
+                    j.generated_workplace,
+                    j.generated_workplace_confidence,
+                    j.generated_city,
+                    j.generated_state,
+                    j.job_url,
+                    j.date_posted,
+                    (je.embedding <=> @embedding::vector) as similarity_score
+                FROM job_embeddings je
+                INNER JOIN jobs j ON je.job_id = j.id
+                WHERE je.generated_workplace = 'REMOTE'
+                    AND je.embedding IS NOT NULL
+                    AND j.status = 'embedded'
+                    AND j.is_valid = true
+                    {dateFilter}
+                ORDER BY similarity_score ASC
+                LIMIT {limit}
+            ),
+            total_count AS (
+                SELECT COUNT(*) as total
+                FROM job_embeddings je
+                INNER JOIN jobs j ON je.job_id = j.id
+                WHERE je.generated_workplace = 'REMOTE'
+                    AND je.embedding IS NOT NULL
+                    AND j.status = 'embedded'
+                    AND j.is_valid = true
+                    {dateFilter}
+            )
             SELECT
-                j.id,
-                j.job_title,
-                j.company_name,
-                j.job_description,
-                j.generated_workplace,
-                j.generated_workplace_confidence,
-                j.generated_city,
-                j.generated_state,
-                j.job_url,
-                j.date_posted,
-                (je.embedding <=> @embedding::vector) as similarity_score
-            FROM job_embeddings je
-            INNER JOIN jobs j ON je.job_id = j.id
-            WHERE je.generated_workplace = 'REMOTE'
-                AND je.embedding IS NOT NULL
-                AND j.status = 'embedded'
-                AND j.is_valid = true
-                {dateFilter}
-            ORDER BY similarity_score ASC
-            LIMIT {limit}";
+                f.*,
+                (SELECT total FROM total_count) as filtered_count
+            FROM filtered_jobs f";
 
-        context.Logger.LogInformation($"Executing SQL query: {sql}");
+        context.Logger.LogInformation($"Executing SQL query with filtered count");
 
         await using var cmd = new NpgsqlCommand(sql, connection);
         cmd.Parameters.AddWithValue("embedding", embedding);
 
         var jobs = new List<JobResult>();
+        var filteredCount = 0;
 
         await using var reader = await cmd.ExecuteReaderAsync();
 
@@ -223,11 +312,17 @@ public class RemoteSearchHandler
                 DatePosted = reader.IsDBNull(9) ? null : reader.GetDateTime(9)
             };
 
+            // Get filtered count from first row
+            if (jobs.Count == 0)
+            {
+                filteredCount = reader.IsDBNull(11) ? 0 : Convert.ToInt32(reader.GetInt64(11));
+            }
+
             jobs.Add(job);
         }
 
-        context.Logger.LogInformation($"Query returned {jobs.Count} remote jobs");
+        context.Logger.LogInformation($"Query returned {jobs.Count} remote jobs from {filteredCount} filtered jobs");
 
-        return jobs;
+        return (jobs, filteredCount);
     }
 }

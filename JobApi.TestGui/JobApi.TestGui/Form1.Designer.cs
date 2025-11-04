@@ -18,6 +18,7 @@ namespace JobApi.TestGui
             this.tabControl = new System.Windows.Forms.TabControl();
             this.tabSearch = new System.Windows.Forms.TabPage();
             this.tabRemoteSearch = new System.Windows.Forms.TabPage();
+            this.tabAuditLogs = new System.Windows.Forms.TabPage();
             this.lblPrompt = new System.Windows.Forms.Label();
             this.txtPrompt = new System.Windows.Forms.TextBox();
             this.lblNumJobs = new System.Windows.Forms.Label();
@@ -58,11 +59,20 @@ namespace JobApi.TestGui
             this.btnClearLocation = new System.Windows.Forms.Button();
             this.lblLocationResults = new System.Windows.Forms.Label();
             this.txtLocationResults = new System.Windows.Forms.TextBox();
+            this.dgvAuditLogs = new System.Windows.Forms.DataGridView();
+            this.btnFirstPage = new System.Windows.Forms.Button();
+            this.btnPreviousPage = new System.Windows.Forms.Button();
+            this.btnNextPage = new System.Windows.Forms.Button();
+            this.btnLastPage = new System.Windows.Forms.Button();
+            this.btnRefresh = new System.Windows.Forms.Button();
+            this.lblPageInfo = new System.Windows.Forms.Label();
             this.tabControl.SuspendLayout();
             this.tabSearch.SuspendLayout();
             this.grpFilter.SuspendLayout();
             this.tabRemoteSearch.SuspendLayout();
             this.tabLocation.SuspendLayout();
+            this.tabAuditLogs.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.dgvAuditLogs)).BeginInit();
             this.SuspendLayout();
             //
             // tabControl
@@ -70,6 +80,7 @@ namespace JobApi.TestGui
             this.tabControl.Controls.Add(this.tabSearch);
             this.tabControl.Controls.Add(this.tabRemoteSearch);
             this.tabControl.Controls.Add(this.tabLocation);
+            this.tabControl.Controls.Add(this.tabAuditLogs);
             this.tabControl.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tabControl.Location = new System.Drawing.Point(0, 0);
             this.tabControl.Name = "tabControl";
@@ -516,6 +527,95 @@ namespace JobApi.TestGui
             this.lblRemoteResults.TabIndex = 9;
             this.lblRemoteResults.Text = "Results:";
             //
+            // tabAuditLogs
+            //
+            this.tabAuditLogs.BackColor = System.Drawing.SystemColors.Control;
+            this.tabAuditLogs.Controls.Add(this.lblPageInfo);
+            this.tabAuditLogs.Controls.Add(this.btnRefresh);
+            this.tabAuditLogs.Controls.Add(this.btnLastPage);
+            this.tabAuditLogs.Controls.Add(this.btnNextPage);
+            this.tabAuditLogs.Controls.Add(this.btnPreviousPage);
+            this.tabAuditLogs.Controls.Add(this.btnFirstPage);
+            this.tabAuditLogs.Controls.Add(this.dgvAuditLogs);
+            this.tabAuditLogs.Location = new System.Drawing.Point(4, 24);
+            this.tabAuditLogs.Name = "tabAuditLogs";
+            this.tabAuditLogs.Padding = new System.Windows.Forms.Padding(3);
+            this.tabAuditLogs.Size = new System.Drawing.Size(792, 652);
+            this.tabAuditLogs.TabIndex = 3;
+            this.tabAuditLogs.Text = "Audit Logs";
+            //
+            // dgvAuditLogs
+            //
+            this.dgvAuditLogs.AllowUserToAddRows = false;
+            this.dgvAuditLogs.AllowUserToDeleteRows = false;
+            this.dgvAuditLogs.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.AllCells;
+            this.dgvAuditLogs.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            this.dgvAuditLogs.Location = new System.Drawing.Point(12, 50);
+            this.dgvAuditLogs.Name = "dgvAuditLogs";
+            this.dgvAuditLogs.ReadOnly = true;
+            this.dgvAuditLogs.RowHeadersVisible = false;
+            this.dgvAuditLogs.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+            this.dgvAuditLogs.Size = new System.Drawing.Size(768, 550);
+            this.dgvAuditLogs.TabIndex = 0;
+            //
+            // btnFirstPage
+            //
+            this.btnFirstPage.Location = new System.Drawing.Point(12, 15);
+            this.btnFirstPage.Name = "btnFirstPage";
+            this.btnFirstPage.Size = new System.Drawing.Size(75, 25);
+            this.btnFirstPage.TabIndex = 1;
+            this.btnFirstPage.Text = "First";
+            this.btnFirstPage.UseVisualStyleBackColor = true;
+            this.btnFirstPage.Click += new System.EventHandler(this.btnFirstPage_Click);
+            //
+            // btnPreviousPage
+            //
+            this.btnPreviousPage.Location = new System.Drawing.Point(93, 15);
+            this.btnPreviousPage.Name = "btnPreviousPage";
+            this.btnPreviousPage.Size = new System.Drawing.Size(75, 25);
+            this.btnPreviousPage.TabIndex = 2;
+            this.btnPreviousPage.Text = "Previous";
+            this.btnPreviousPage.UseVisualStyleBackColor = true;
+            this.btnPreviousPage.Click += new System.EventHandler(this.btnPreviousPage_Click);
+            //
+            // btnNextPage
+            //
+            this.btnNextPage.Location = new System.Drawing.Point(174, 15);
+            this.btnNextPage.Name = "btnNextPage";
+            this.btnNextPage.Size = new System.Drawing.Size(75, 25);
+            this.btnNextPage.TabIndex = 3;
+            this.btnNextPage.Text = "Next";
+            this.btnNextPage.UseVisualStyleBackColor = true;
+            this.btnNextPage.Click += new System.EventHandler(this.btnNextPage_Click);
+            //
+            // btnLastPage
+            //
+            this.btnLastPage.Location = new System.Drawing.Point(255, 15);
+            this.btnLastPage.Name = "btnLastPage";
+            this.btnLastPage.Size = new System.Drawing.Size(75, 25);
+            this.btnLastPage.TabIndex = 4;
+            this.btnLastPage.Text = "Last";
+            this.btnLastPage.UseVisualStyleBackColor = true;
+            this.btnLastPage.Click += new System.EventHandler(this.btnLastPage_Click);
+            //
+            // btnRefresh
+            //
+            this.btnRefresh.Location = new System.Drawing.Point(350, 15);
+            this.btnRefresh.Name = "btnRefresh";
+            this.btnRefresh.Size = new System.Drawing.Size(75, 25);
+            this.btnRefresh.TabIndex = 5;
+            this.btnRefresh.Text = "Refresh";
+            this.btnRefresh.UseVisualStyleBackColor = true;
+            this.btnRefresh.Click += new System.EventHandler(this.btnRefresh_Click);
+            //
+            // lblPageInfo
+            //
+            this.lblPageInfo.AutoSize = true;
+            this.lblPageInfo.Location = new System.Drawing.Point(450, 20);
+            this.lblPageInfo.Name = "lblPageInfo";
+            this.lblPageInfo.Size = new System.Drawing.Size(0, 15);
+            this.lblPageInfo.TabIndex = 6;
+            //
             // Form1
             //
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
@@ -536,6 +636,9 @@ namespace JobApi.TestGui
             this.tabRemoteSearch.PerformLayout();
             this.tabLocation.ResumeLayout(false);
             this.tabLocation.PerformLayout();
+            this.tabAuditLogs.ResumeLayout(false);
+            this.tabAuditLogs.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.dgvAuditLogs)).EndInit();
             this.ResumeLayout(false);
         }
 
@@ -582,5 +685,13 @@ namespace JobApi.TestGui
         private System.Windows.Forms.Button btnClearRemote;
         private System.Windows.Forms.TextBox txtRemoteResults;
         private System.Windows.Forms.Label lblRemoteResults;
+        private System.Windows.Forms.TabPage tabAuditLogs;
+        private System.Windows.Forms.DataGridView dgvAuditLogs;
+        private System.Windows.Forms.Button btnFirstPage;
+        private System.Windows.Forms.Button btnPreviousPage;
+        private System.Windows.Forms.Button btnNextPage;
+        private System.Windows.Forms.Button btnLastPage;
+        private System.Windows.Forms.Button btnRefresh;
+        private System.Windows.Forms.Label lblPageInfo;
     }
 }

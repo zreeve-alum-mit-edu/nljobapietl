@@ -1,5 +1,6 @@
 using Amazon.Lambda.Core;
 using Amazon.Lambda.APIGatewayEvents;
+using JobApi.Lambda.Api.Helpers;
 using System.Text.Json;
 
 [assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer))]
@@ -12,6 +13,8 @@ public class ApiGatewayHandler
     private readonly RemoteSearchHandler _remoteSearchHandler;
     private readonly LocationHandler _locationHandler;
     private readonly HashSet<string> _apiKeys;
+    private readonly AuditLogger _auditLogger;
+    private readonly string _connectionString;
 
     public ApiGatewayHandler()
     {
@@ -22,6 +25,14 @@ public class ApiGatewayHandler
         // Support multiple API keys (comma-separated in API_KEYS environment variable)
         var apiKeysEnv = Environment.GetEnvironmentVariable("API_KEYS") ?? "HHTnWCCgx2uCP7Ia3ZVB80SI6lviPPK0gR7eG8Ne";
         _apiKeys = new HashSet<string>(apiKeysEnv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+        // Initialize audit logger
+        var host = Environment.GetEnvironmentVariable("DB_HOST") ?? throw new Exception("DB_HOST not set");
+        var database = Environment.GetEnvironmentVariable("DB_NAME") ?? throw new Exception("DB_NAME not set");
+        var username = Environment.GetEnvironmentVariable("DB_USER") ?? throw new Exception("DB_USER not set");
+        var password = Environment.GetEnvironmentVariable("DB_PASSWORD") ?? throw new Exception("DB_PASSWORD not set");
+        _connectionString = $"Host={host};Database={database};Username={username};Password={password}";
+        _auditLogger = new AuditLogger(_connectionString);
     }
 
     /// <summary>
@@ -112,6 +123,8 @@ public class ApiGatewayHandler
         APIGatewayProxyRequest request,
         ILambdaContext context)
     {
+        var startTime = DateTime.UtcNow;
+
         try
         {
             // Deserialize request body
@@ -119,7 +132,9 @@ public class ApiGatewayHandler
 
             if (searchRequest == null)
             {
-                return CreateResponse(400, new { message = "Request body is missing or invalid JSON. Expected format: {\"prompt\": \"...\", \"numJobs\": 10, \"city\": \"Austin\", \"state\": \"TX\", \"miles\": 20, \"includeOnsite\": true, \"includeHybrid\": true}" });
+                var errorMsg = "Request body is missing or invalid JSON. Expected format: {\"prompt\": \"...\", \"numJobs\": 10, \"city\": \"Austin\", \"state\": \"TX\", \"miles\": 20, \"includeOnsite\": true, \"includeHybrid\": true}";
+                await _auditLogger.LogValidationError("/search", startTime, null, null, null, null, null, null, null, null, 400, errorMsg, context.AwsRequestId, context);
+                return CreateResponse(400, new { message = errorMsg });
             }
 
             // Validate prompt
