@@ -51,38 +51,12 @@ public class Job
     [MaxLength(500)]
     public string? JobTitle { get; set; }
 
-    [Column("job_url")]
-    [MaxLength(1000)]
-    public string? JobUrl { get; set; }
-
     [Column("job_description")]
     public string? JobDescription { get; set; }
 
-    [Column("location")]
-    [MaxLength(500)]
-    public string? Location { get; set; }
-
-    [Column("country")]
-    [MaxLength(100)]
-    public string? Country { get; set; }
-
-    [Column("region")]
-    [MaxLength(100)]
-    public string? Region { get; set; }
-
-    [Column("locality")]
-    [MaxLength(100)]
-    public string? Locality { get; set; }
-
-    [Column("postcode")]
-    [MaxLength(20)]
-    public string? Postcode { get; set; }
-
-    [Column("latitude")]
-    public decimal? Latitude { get; set; }
-
-    [Column("longitude")]
-    public decimal? Longitude { get; set; }
+    [Column("job_description_hash")]
+    [MaxLength(64)]
+    public string? JobDescriptionHash { get; set; }
 
     [Column("date_posted")]
     public DateTime? DatePosted { get; set; }
@@ -120,22 +94,9 @@ public class Job
     [Column("llm_workplace_retry_count")]
     public int LlmWorkplaceRetryCount { get; set; } = 0;
 
-    [Column("llm_location_retry_count")]
-    public int LlmLocationRetryCount { get; set; } = 0;
-
-    [Column("generated_city")]
-    [MaxLength(100)]
-    public string? GeneratedCity { get; set; }
-
-    [Column("generated_state")]
-    [MaxLength(2)]
-    public string? GeneratedState { get; set; }
-
-    [Column("generated_country")]
-    [MaxLength(2)]
-    public string? GeneratedCountry { get; set; }
-
-    // Navigation property
+    // Navigation properties
     [ForeignKey("FileId")]
     public File? File { get; set; }
+
+    public ICollection<JobLocation> Locations { get; set; } = new List<JobLocation>();
 }

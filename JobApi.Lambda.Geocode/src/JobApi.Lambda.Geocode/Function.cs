@@ -21,24 +21,25 @@ public class Function
         using var conn = new NpgsqlConnection(JobContext.GetConnectionString());
         await conn.OpenAsync();
 
-        // Step 1: Check if there are any jobs to process (before loading CSV)
-        context.Logger.LogInformation("Checking for jobs needing geocoding...");
+        // Step 1: Check if there are any job_locations to process (before loading CSV)
+        context.Logger.LogInformation("Checking for job locations needing geocoding...");
 
         await using var countCmd = new NpgsqlCommand(@"
             SELECT COUNT(*)
-            FROM jobs
-            WHERE status = 'location_classified' AND latitude IS NULL", conn);
+            FROM job_locations jl
+            INNER JOIN jobs j ON jl.job_id = j.id
+            WHERE j.status = 'location_classified' AND jl.latitude IS NULL", conn);
 
         var totalCount = (long)(await countCmd.ExecuteScalarAsync() ?? 0L);
 
         if (totalCount == 0)
         {
-            context.Logger.LogInformation("No jobs need geocoding. Exiting.");
+            context.Logger.LogInformation("No job locations need geocoding. Exiting.");
             context.Logger.LogInformation("=== Geocode Lambda Complete ===");
             return;
         }
 
-        context.Logger.LogInformation($"Found {totalCount} jobs needing geocoding");
+        context.Logger.LogInformation($"Found {totalCount} job locations needing geocoding");
 
         // Step 2: Load CSV into memory
         context.Logger.LogInformation("Loading US cities geocoding data...");
@@ -58,12 +59,13 @@ public class Function
             var batchStopwatch = Stopwatch.StartNew();
 
             // Fetch batch
-            var jobs = new List<(Guid id, string? city, string? state, string? country)>();
+            var locations = new List<(Guid locationId, Guid jobId, string? city, string? state, string? country)>();
 
             await using (var cmd = new NpgsqlCommand(@"
-                SELECT id, generated_city, generated_state, generated_country
-                FROM jobs
-                WHERE status = 'location_classified' AND latitude IS NULL
+                SELECT jl.id, jl.job_id, jl.generated_city, jl.generated_state, jl.generated_country
+                FROM job_locations jl
+                INNER JOIN jobs j ON jl.job_id = j.id
+                WHERE j.status = 'location_classified' AND jl.latitude IS NULL
                 LIMIT @limit", conn))
             {
                 cmd.Parameters.AddWithValue("limit", BatchSize);
@@ -71,16 +73,17 @@ public class Function
                 await using var reader = await cmd.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
                 {
-                    jobs.Add((
+                    locations.Add((
                         reader.GetGuid(0),
-                        reader.IsDBNull(1) ? null : reader.GetString(1),
+                        reader.GetGuid(1),
                         reader.IsDBNull(2) ? null : reader.GetString(2),
-                        reader.IsDBNull(3) ? null : reader.GetString(3)
+                        reader.IsDBNull(3) ? null : reader.GetString(3),
+                        reader.IsDBNull(4) ? null : reader.GetString(4)
                     ));
                 }
             }
 
-            if (jobs.Count == 0)
+            if (locations.Count == 0)
                 break;
 
             // Process batch
@@ -88,28 +91,28 @@ public class Function
 
             try
             {
-                var geocodedIds = new List<Guid>();
-                var geocodedWithCoordsIds = new List<Guid>();
+                var geocodedLocationIds = new List<Guid>();
+                var geocodedWithCoordsLocationIds = new List<Guid>();
                 var geocodedLats = new List<decimal>();
                 var geocodedLons = new List<decimal>();
-                var invalidIds = new List<Guid>();
+                var invalidJobIds = new HashSet<Guid>(); // Jobs with non-US locations
 
-                foreach (var job in jobs)
+                foreach (var location in locations)
                 {
-                    // Check if country is not US - mark as invalid
-                    if (job.country != null && !job.country.Equals("US", StringComparison.OrdinalIgnoreCase))
+                    // Check if country is not US - track job as invalid
+                    if (location.country != null && !location.country.Equals("US", StringComparison.OrdinalIgnoreCase))
                     {
-                        invalidIds.Add(job.id);
+                        invalidJobIds.Add(location.jobId);
                         invalidCount++;
                     }
-                    // Only geocode US jobs
-                    else if (job.city != null && job.state != null)
+                    // Only geocode US locations
+                    else if (location.city != null && location.state != null)
                     {
-                        var key = $"{job.city},{job.state}".ToLowerInvariant();
+                        var key = $"{location.city},{location.state}".ToLowerInvariant();
 
                         if (cityLookup.TryGetValue(key, out var coords))
                         {
-                            geocodedWithCoordsIds.Add(job.id);
+                            geocodedWithCoordsLocationIds.Add(location.locationId);
                             geocodedLats.Add(coords.lat);
                             geocodedLons.Add(coords.lon);
                             successCount++;
@@ -117,25 +120,25 @@ public class Function
                         else
                         {
                             // City not found - still mark as geocoded but leave lat/lon null
-                            geocodedIds.Add(job.id);
+                            geocodedLocationIds.Add(location.locationId);
                             notFoundCount++;
                         }
                     }
                     else
                     {
-                        // Missing city/state - still mark as geocoded (US job but incomplete location data)
-                        geocodedIds.Add(job.id);
+                        // Missing city/state - still mark as geocoded (US location but incomplete data)
+                        geocodedLocationIds.Add(location.locationId);
                         notFoundCount++;
                     }
                 }
 
-                // Update jobs with coordinates
-                if (geocodedWithCoordsIds.Count > 0)
+                // Update job_locations with coordinates
+                if (geocodedWithCoordsLocationIds.Count > 0)
                 {
                     // Create temp table for bulk update
                     await using (var cmd = new NpgsqlCommand(@"
                         CREATE TEMP TABLE temp_geocode (
-                            job_id UUID,
+                            location_id UUID,
                             lat DECIMAL,
                             lon DECIMAL
                         ) ON COMMIT DROP", conn, transaction))
@@ -145,61 +148,70 @@ public class Function
 
                     // COPY data into temp table
                     await using (var writer = await conn.BeginBinaryImportAsync(
-                        "COPY temp_geocode (job_id, lat, lon) FROM STDIN (FORMAT BINARY)"))
+                        "COPY temp_geocode (location_id, lat, lon) FROM STDIN (FORMAT BINARY)"))
                     {
-                        for (int i = 0; i < geocodedWithCoordsIds.Count; i++)
+                        for (int i = 0; i < geocodedWithCoordsLocationIds.Count; i++)
                         {
                             await writer.StartRowAsync();
-                            await writer.WriteAsync(geocodedWithCoordsIds[i], NpgsqlTypes.NpgsqlDbType.Uuid);
+                            await writer.WriteAsync(geocodedWithCoordsLocationIds[i], NpgsqlTypes.NpgsqlDbType.Uuid);
                             await writer.WriteAsync(geocodedLats[i], NpgsqlTypes.NpgsqlDbType.Numeric);
                             await writer.WriteAsync(geocodedLons[i], NpgsqlTypes.NpgsqlDbType.Numeric);
                         }
                         await writer.CompleteAsync();
                     }
 
-                    // UPDATE jobs from temp table
+                    // UPDATE job_locations from temp table
                     await using (var cmd = new NpgsqlCommand(@"
-                        UPDATE jobs j
+                        UPDATE job_locations jl
                         SET
                             latitude = t.lat,
-                            longitude = t.lon,
-                            status = 'geocoded'
+                            longitude = t.lon
                         FROM temp_geocode t
-                        WHERE j.id = t.job_id", conn, transaction))
+                        WHERE jl.id = t.location_id", conn, transaction))
                     {
                         await cmd.ExecuteNonQueryAsync();
                     }
                 }
 
-                // Update jobs without coordinates (city not found or missing data)
-                if (geocodedIds.Count > 0)
-                {
-                    await using var cmd = new NpgsqlCommand(@"
-                        UPDATE jobs
-                        SET status = 'geocoded'
-                        WHERE id = ANY(@ids)", conn, transaction);
-                    cmd.Parameters.AddWithValue("ids", geocodedIds.ToArray());
-                    await cmd.ExecuteNonQueryAsync();
-                }
+                // Note: Locations without coordinates don't need any update
+                // They'll remain with latitude/longitude as NULL in job_locations table
 
                 // Update invalid jobs (non-US)
-                if (invalidIds.Count > 0)
+                if (invalidJobIds.Count > 0)
                 {
                     await using var cmd = new NpgsqlCommand(@"
                         UPDATE jobs
                         SET status = 'invalid - non-us-location',
                             is_valid = false
                         WHERE id = ANY(@ids)", conn, transaction);
-                    cmd.Parameters.AddWithValue("ids", invalidIds.ToArray());
+                    cmd.Parameters.AddWithValue("ids", invalidJobIds.ToArray());
+                    await cmd.ExecuteNonQueryAsync();
+                }
+
+                // Update job status to 'geocoded' for jobs where ALL locations have been processed
+                // Get distinct job IDs from the locations we just processed
+                var processedJobIds = locations.Select(l => l.jobId).Distinct().ToList();
+
+                await using (var cmd = new NpgsqlCommand(@"
+                    UPDATE jobs j
+                    SET status = 'geocoded'
+                    WHERE j.id = ANY(@jobIds)
+                    AND j.status = 'location_classified'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM job_locations jl2
+                        WHERE jl2.job_id = j.id AND jl2.latitude IS NULL
+                    )", conn, transaction))
+                {
+                    cmd.Parameters.AddWithValue("jobIds", processedJobIds.ToArray());
                     await cmd.ExecuteNonQueryAsync();
                 }
 
                 await transaction.CommitAsync();
 
-                processedCount += jobs.Count;
+                processedCount += locations.Count;
                 batchStopwatch.Stop();
 
-                context.Logger.LogInformation($"[BATCH] Processed {jobs.Count} jobs in {batchStopwatch.ElapsedMilliseconds}ms (Total: {processedCount}/{totalCount})");
+                context.Logger.LogInformation($"[BATCH] Processed {locations.Count} locations in {batchStopwatch.ElapsedMilliseconds}ms (Total: {processedCount}/{totalCount})");
             }
             catch (Exception ex)
             {
@@ -210,16 +222,20 @@ public class Function
         }
 
         // Update any remaining jobs with status 'location_classified' to 'geocoded'
-        // (these are jobs that already had coordinates from a previous run)
+        // (these are jobs where all locations already had coordinates from a previous run)
         await using (var cmd = new NpgsqlCommand(@"
-            UPDATE jobs
+            UPDATE jobs j
             SET status = 'geocoded'
-            WHERE status = 'location_classified'", conn))
+            WHERE j.status = 'location_classified'
+            AND NOT EXISTS (
+                SELECT 1 FROM job_locations jl
+                WHERE jl.job_id = j.id AND jl.latitude IS NULL
+            )", conn))
         {
             var skippedCount = await cmd.ExecuteNonQueryAsync();
             if (skippedCount > 0)
             {
-                context.Logger.LogInformation($"Updated {skippedCount} job(s) that already had coordinates to 'geocoded'");
+                context.Logger.LogInformation($"Updated {skippedCount} job(s) that already had all locations geocoded to 'geocoded'");
             }
         }
 

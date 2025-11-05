@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Amazon.Lambda.Core;
@@ -136,9 +138,10 @@ public class Function
     private async Task ProcessIngestFile(string bucketName, string key, string fileName, ILambdaContext context)
     {
         var lineCount = 0;
+        var skippedCount = 0;
         var totalInserted = 0;
         var batchSize = 2000;
-        var jobs = new List<Job>(capacity: batchSize);
+        var processedJobs = new List<ProcessedJob>(capacity: batchSize);
 
         // Create DbContext
         await using var db = JobContext.Create();
@@ -188,14 +191,20 @@ public class Function
                     var jsonJob = JsonSerializer.Deserialize<JsonlJob>(line);
                     if (jsonJob == null) continue;
 
-                    var job = MapToJob(jsonJob, fileRecord.Id);
-                    jobs.Add(job);
-
-                    if (jobs.Count >= batchSize)
+                    var processedJob = MapToProcessedJob(jsonJob, fileRecord.Id);
+                    if (processedJob == null)
                     {
-                        var inserted = await SaveJobBatch(db, jobs, lineCount, context);
+                        skippedCount++;
+                        continue; // Skip invalid jobs (no URL or no description)
+                    }
+
+                    processedJobs.Add(processedJob);
+
+                    if (processedJobs.Count >= batchSize)
+                    {
+                        var inserted = await SaveJobBatch(db, processedJobs, lineCount, context);
                         totalInserted += inserted;
-                        jobs.Clear();
+                        processedJobs.Clear();
                         db.ChangeTracker.Clear();
                     }
                 }
@@ -210,14 +219,14 @@ public class Function
             }
 
             // Insert remaining jobs
-            if (jobs.Count > 0)
+            if (processedJobs.Count > 0)
             {
-                var inserted = await SaveJobBatch(db, jobs, lineCount, context);
+                var inserted = await SaveJobBatch(db, processedJobs, lineCount, context);
                 totalInserted += inserted;
                 context.Logger.LogInformation($"Inserted final batch. Total: {totalInserted} jobs");
             }
 
-            context.Logger.LogInformation($"Import complete! Total jobs inserted: {totalInserted} from {lineCount} lines");
+            context.Logger.LogInformation($"Import complete! Total jobs inserted: {totalInserted}, skipped: {skippedCount} from {lineCount} lines");
         }
         catch (Exception ex)
         {
@@ -226,50 +235,161 @@ public class Function
         }
     }
 
-    private static async Task<int> SaveJobBatch(JobContext db, List<Job> jobs, int lineCount, ILambdaContext context)
+    private static async Task<int> SaveJobBatch(JobContext db, List<ProcessedJob> processedJobs, int lineCount, ILambdaContext context)
     {
-        try
+        if (processedJobs.Count == 0) return 0;
+
+        var totalInserted = 0;
+
+        // Step 1: Find existing jobs by hash
+        var hashes = processedJobs.Select(pj => pj.Hash).Distinct().ToList();
+        var existingJobs = await db.Jobs
+            .Where(j => hashes.Contains(j.JobDescriptionHash!))
+            .Select(j => new { j.Id, j.JobDescriptionHash })
+            .ToListAsync();
+
+        var existingJobsByHash = existingJobs.ToDictionary(j => j.JobDescriptionHash!, j => j.Id);
+
+        // Map ProcessedJob to actual job ID (existing or new)
+        var jobIdMap = new Dictionary<string, Guid>(); // hash -> job_id
+
+        var newJobs = new List<Job>();
+        foreach (var pj in processedJobs)
         {
-            await db.Jobs.AddRangeAsync(jobs);
-            await db.SaveChangesAsync();
-            context.Logger.LogInformation($"Inserted {jobs.Count} jobs (line {lineCount})...");
-            return jobs.Count;
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException pgEx && pgEx.SqlState == "23505")
-        {
-            // Duplicate key error - save jobs one by one to skip duplicates
-            context.Logger.LogInformation($"Duplicate key detected in batch, processing jobs individually...");
-
-            db.ChangeTracker.Clear();
-
-            int successCount = 0;
-            int duplicateCount = 0;
-
-            foreach (var job in jobs)
+            if (existingJobsByHash.TryGetValue(pj.Hash, out var existingJobId))
             {
-                try
-                {
-                    await db.Jobs.AddAsync(job);
-                    await db.SaveChangesAsync();
-                    successCount++;
-                }
-                catch (DbUpdateException dupEx) when (dupEx.InnerException is PostgresException pgDup && pgDup.SqlState == "23505")
-                {
-                    duplicateCount++;
-                    db.ChangeTracker.Clear();
-                }
+                jobIdMap[pj.Hash] = existingJobId;
             }
-
-            context.Logger.LogInformation($"Inserted {successCount} jobs ({duplicateCount} duplicates skipped, line {lineCount})...");
-            return successCount;
+            else if (!jobIdMap.ContainsKey(pj.Hash))
+            {
+                // New job - will be inserted
+                jobIdMap[pj.Hash] = pj.Job.Id;
+                newJobs.Add(pj.Job);
+            }
         }
+
+        // Insert new jobs
+        if (newJobs.Count > 0)
+        {
+            await db.Jobs.AddRangeAsync(newJobs);
+            await db.SaveChangesAsync();
+            totalInserted += newJobs.Count;
+            context.Logger.LogInformation($"Inserted {newJobs.Count} new jobs");
+        }
+
+        // Step 2: Update ProcessedJob entities with correct job IDs
+        foreach (var pj in processedJobs)
+        {
+            var actualJobId = jobIdMap[pj.Hash];
+            pj.Location.JobId = actualJobId;
+        }
+
+        // Step 3: Find existing locations by (job_id, location)
+        var locationKeys = processedJobs
+            .Select(pj => new { JobId = pj.Location.JobId, Location = pj.LocationString })
+            .Distinct()
+            .ToList();
+
+        var jobIds = locationKeys.Select(k => k.JobId).ToList();
+        var existingLocations = await db.JobLocations
+            .Where(jl => jobIds.Contains(jl.JobId))
+            .Select(jl => new { jl.Id, jl.JobId, Location = jl.Location ?? string.Empty })
+            .ToListAsync();
+
+        var existingLocationsByKey = existingLocations
+            .ToDictionary(jl => (jl.JobId, jl.Location), jl => jl.Id);
+
+        // Map to actual location ID (existing or new)
+        var locationIdMap = new Dictionary<(Guid jobId, string location), Guid>();
+
+        var newLocations = new List<JobLocation>();
+        foreach (var pj in processedJobs)
+        {
+            var key = (pj.Location.JobId, pj.LocationString);
+            if (existingLocationsByKey.TryGetValue(key, out var existingLocationId))
+            {
+                locationIdMap[key] = existingLocationId;
+            }
+            else if (!locationIdMap.ContainsKey(key))
+            {
+                // New location - will be inserted
+                locationIdMap[key] = pj.Location.Id;
+                newLocations.Add(pj.Location);
+            }
+        }
+
+        // Insert new locations
+        if (newLocations.Count > 0)
+        {
+            await db.JobLocations.AddRangeAsync(newLocations);
+            await db.SaveChangesAsync();
+            context.Logger.LogInformation($"Inserted {newLocations.Count} new locations");
+        }
+
+        // Step 4: Update ProcessedJob URL entities with correct location IDs
+        foreach (var pj in processedJobs)
+        {
+            var key = (pj.Location.JobId, pj.LocationString);
+            var actualLocationId = locationIdMap[key];
+            pj.Url.JobLocationId = actualLocationId;
+        }
+
+        // Step 5: Find existing URLs by (location_id, url)
+        var locationIds = locationIdMap.Values.Distinct().ToList();
+        var existingUrls = await db.JobLocationUrls
+            .Where(jlu => locationIds.Contains(jlu.JobLocationId))
+            .Select(jlu => new { jlu.JobLocationId, jlu.Url })
+            .ToListAsync();
+
+        var existingUrlSet = existingUrls
+            .Select(u => (u.JobLocationId, u.Url))
+            .ToHashSet();
+
+        // Insert only new URLs
+        var newUrls = processedJobs
+            .Where(pj => !existingUrlSet.Contains((pj.Url.JobLocationId, pj.UrlString)))
+            .Select(pj => pj.Url)
+            .GroupBy(u => (u.JobLocationId, u.Url))
+            .Select(g => g.First()) // Remove duplicates within this batch
+            .ToList();
+
+        if (newUrls.Count > 0)
+        {
+            await db.JobLocationUrls.AddRangeAsync(newUrls);
+            await db.SaveChangesAsync();
+            context.Logger.LogInformation($"Inserted {newUrls.Count} new URLs");
+        }
+
+        context.Logger.LogInformation($"Batch complete (line {lineCount}): {newJobs.Count} jobs, {newLocations.Count} locations, {newUrls.Count} URLs");
+        return totalInserted;
     }
 
-    private static Job MapToJob(JsonlJob jsonJob, Guid fileId)
+    private class ProcessedJob
     {
-        return new Job
+        public string Hash { get; set; } = string.Empty;
+        public Job Job { get; set; } = null!;
+        public JobLocation Location { get; set; } = null!;
+        public JobLocationUrl Url { get; set; } = null!;
+        public string LocationString { get; set; } = string.Empty;
+        public string UrlString { get; set; } = string.Empty;
+    }
+
+    private static ProcessedJob? MapToProcessedJob(JsonlJob jsonJob, Guid fileId)
+    {
+        // Validate: Must have URL and description
+        if (string.IsNullOrWhiteSpace(jsonJob.Url))
+            return null;
+
+        if (string.IsNullOrWhiteSpace(jsonJob.Text))
+            return null;
+
+        var hash = ComputeMd5Hash(jsonJob.Text)!;
+        var jobId = Guid.NewGuid();
+        var locationId = Guid.NewGuid();
+
+        var job = new Job
         {
-            Id = Guid.NewGuid(),
+            Id = jobId,
             DateInserted = DateTime.UtcNow,
             Status = "ingested",
             IsValid = true,
@@ -280,9 +400,24 @@ public class Function
             IsDuplicate = jsonJob.IsDuplicate,
             Locale = Truncate(jsonJob.Locale, 10),
             JobTitle = Truncate(jsonJob.Name, 500),
-            JobUrl = Truncate(jsonJob.Url, 1000),
             JobDescription = jsonJob.Text,
-            Location = Truncate(jsonJob.Location?.OrgAddress?.AddressLine, 500),
+            JobDescriptionHash = hash,
+            DatePosted = ParseDate(jsonJob.Json?.SchemaOrg?.DatePosted ?? jsonJob.Json?.JsonLD?.DatePosted),
+            EmploymentType = Truncate(jsonJob.Json?.SchemaOrg?.EmploymentType
+                            ?? jsonJob.Json?.JsonLD?.EmploymentType, 100),
+            CompanyName = Truncate(jsonJob.Company?.Name, 500),
+            CompanyUrl = Truncate(jsonJob.Company?.Info?.CareerPageURL, 1000),
+            ValidThrough = ParseDate(jsonJob.Json?.SchemaOrg?.ValidThrough ?? jsonJob.Json?.JsonLD?.ValidThrough),
+            WorkplaceType = null
+        };
+
+        var locationString = Truncate(jsonJob.Location?.OrgAddress?.AddressLine, 500) ?? string.Empty;
+
+        var location = new JobLocation
+        {
+            Id = locationId,
+            JobId = jobId,
+            Location = locationString,
             Country = Truncate(jsonJob.Json?.SchemaOrg?.JobLocation?.Address?.AddressCountry
                       ?? jsonJob.Json?.JsonLD?.JobLocation?.Address?.AddressCountry, 100),
             Region = Truncate(jsonJob.Json?.SchemaOrg?.JobLocation?.Address?.AddressRegion
@@ -294,15 +429,24 @@ public class Function
             Latitude = jsonJob.Json?.SchemaOrg?.JobLocation?.Latitude
                        ?? jsonJob.Json?.JsonLD?.JobLocation?.Latitude,
             Longitude = jsonJob.Json?.SchemaOrg?.JobLocation?.Longitude
-                        ?? jsonJob.Json?.JsonLD?.JobLocation?.Longitude,
-            DatePosted = ParseDate(jsonJob.Json?.SchemaOrg?.DatePosted ?? jsonJob.Json?.JsonLD?.DatePosted),
-            EmploymentType = Truncate(jsonJob.Json?.SchemaOrg?.EmploymentType
-                            ?? jsonJob.Json?.JsonLD?.EmploymentType, 100),
-            CompanyName = Truncate(jsonJob.Company?.Name, 500),
-            CompanyUrl = Truncate(jsonJob.Company?.Info?.CareerPageURL, 1000),
-            ValidThrough = ParseDate(jsonJob.Json?.SchemaOrg?.ValidThrough ?? jsonJob.Json?.JsonLD?.ValidThrough),
-            WorkplaceType = null,
-            Embedding = null
+                        ?? jsonJob.Json?.JsonLD?.JobLocation?.Longitude
+        };
+
+        var url = new JobLocationUrl
+        {
+            Id = Guid.NewGuid(),
+            JobLocationId = locationId,
+            Url = Truncate(jsonJob.Url, 1000)!
+        };
+
+        return new ProcessedJob
+        {
+            Hash = hash,
+            Job = job,
+            Location = location,
+            Url = url,
+            LocationString = locationString,
+            UrlString = url.Url
         };
     }
 
@@ -324,6 +468,17 @@ public class Function
     {
         if (string.IsNullOrEmpty(value)) return value;
         return value.Length <= maxLength ? value : value.Substring(0, maxLength);
+    }
+
+    private static string? ComputeMd5Hash(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return null;
+
+        using var md5 = MD5.Create();
+        var inputBytes = Encoding.UTF8.GetBytes(text);
+        var hashBytes = md5.ComputeHash(inputBytes);
+        return Convert.ToHexString(hashBytes).ToLowerInvariant();
     }
 }
 

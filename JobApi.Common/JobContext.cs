@@ -10,6 +10,8 @@ public class JobContext : DbContext
     }
 
     public DbSet<Job> Jobs { get; set; }
+    public DbSet<JobLocation> JobLocations { get; set; }
+    public DbSet<JobLocationUrl> JobLocationUrls { get; set; }
     public DbSet<JobEmbedding> JobEmbeddings { get; set; }
     public DbSet<Entities.File> Files { get; set; }
     public DbSet<WorkplaceBatch> WorkplaceBatches { get; set; }
@@ -44,26 +46,18 @@ public class JobContext : DbContext
             entity.HasIndex(e => e.DateInserted);
             entity.HasIndex(e => e.DatePosted);
             entity.HasIndex(e => e.IsDuplicate);
-            entity.HasIndex(e => e.Country);
             entity.HasIndex(e => e.EmploymentType);
 
-            // Unique constraint on job_url to prevent duplicates (filtered to exclude nulls)
-            entity.HasIndex(e => e.JobUrl)
+            // Unique constraint on job_description_hash
+            entity.HasIndex(e => e.JobDescriptionHash)
                 .IsUnique()
-                .HasFilter("job_url IS NOT NULL");
+                .HasFilter("job_description_hash IS NOT NULL");
 
             // Configure relationship
             entity.HasOne(e => e.File)
                 .WithMany(f => f.Jobs)
                 .HasForeignKey(e => e.FileId)
                 .OnDelete(DeleteBehavior.Restrict);
-
-            // Configure decimal precision for coordinates
-            entity.Property(e => e.Latitude)
-                .HasPrecision(10, 7);
-
-            entity.Property(e => e.Longitude)
-                .HasPrecision(10, 7);
         });
 
         // WorkplaceBatch entity configuration
@@ -131,6 +125,59 @@ public class JobContext : DbContext
             entity.HasOne(e => e.Job)
                 .WithOne()
                 .HasForeignKey<JobEmbedding>(e => e.JobId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // JobLocation entity configuration
+        modelBuilder.Entity<JobLocation>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            // Index on job_id for FK queries
+            entity.HasIndex(e => e.JobId);
+
+            // Indexes on generated location fields for filtering
+            entity.HasIndex(e => e.GeneratedState)
+                .HasFilter("generated_state IS NOT NULL");
+
+            entity.HasIndex(e => e.GeneratedCountry)
+                .HasFilter("generated_country IS NOT NULL");
+
+            // Configure decimal precision for coordinates
+            entity.Property(e => e.Latitude)
+                .HasPrecision(10, 7);
+
+            entity.Property(e => e.Longitude)
+                .HasPrecision(10, 7);
+
+            // Configure PostGIS geography type for gistlocation
+            entity.Property(e => e.GistLocation)
+                .HasColumnType("geography(Point, 4326)");
+
+            // Configure relationship with cascade delete
+            entity.HasOne(e => e.Job)
+                .WithMany(j => j.Locations)
+                .HasForeignKey(e => e.JobId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // JobLocationUrl entity configuration
+        modelBuilder.Entity<JobLocationUrl>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            // Index on job_location_id for FK queries
+            entity.HasIndex(e => e.JobLocationId);
+
+            // Unique index on URL to prevent duplicates
+            entity.HasIndex(e => e.Url)
+                .IsUnique()
+                .HasFilter("url IS NOT NULL");
+
+            // Configure relationship with cascade delete
+            entity.HasOne(e => e.JobLocation)
+                .WithMany(jl => jl.Urls)
+                .HasForeignKey(e => e.JobLocationId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

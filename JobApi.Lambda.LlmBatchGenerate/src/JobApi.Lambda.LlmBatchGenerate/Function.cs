@@ -82,11 +82,19 @@ public class Function
             // SELECT FOR UPDATE locks the rows, preventing other Lambda instances from grabbing them
             context.Logger.LogInformation("Querying and locking jobs with status = 'ingested'...");
 
+            // Query jobs and join with job_locations to get location data
+            // Since a job can have multiple locations, we'll concatenate them
             const string selectSql = @"
-                SELECT id, job_title, company_name, locality, region, country, location, job_description
-                FROM jobs
-                WHERE status = 'ingested'
-                FOR UPDATE";
+                SELECT j.id, j.job_title, j.company_name, j.job_description,
+                       STRING_AGG(DISTINCT jl.locality, ' / ') as localities,
+                       STRING_AGG(DISTINCT jl.region, ' / ') as regions,
+                       STRING_AGG(DISTINCT jl.country, ' / ') as countries,
+                       STRING_AGG(DISTINCT jl.location, ' / ') as locations
+                FROM jobs j
+                LEFT JOIN job_locations jl ON j.id = jl.job_id
+                WHERE j.status = 'ingested'
+                GROUP BY j.id, j.job_title, j.company_name, j.job_description
+                FOR UPDATE OF j";
 
             var jobs = new List<JobBatchData>();
 
@@ -102,11 +110,11 @@ public class Function
                         Id = reader.GetGuid(0),
                         JobTitle = reader.IsDBNull(1) ? null : reader.GetString(1),
                         CompanyName = reader.IsDBNull(2) ? null : reader.GetString(2),
-                        Locality = reader.IsDBNull(3) ? null : reader.GetString(3),
-                        Region = reader.IsDBNull(4) ? null : reader.GetString(4),
-                        Country = reader.IsDBNull(5) ? null : reader.GetString(5),
-                        Location = reader.IsDBNull(6) ? null : reader.GetString(6),
-                        JobDescription = reader.IsDBNull(7) ? null : reader.GetString(7)
+                        JobDescription = reader.IsDBNull(3) ? null : reader.GetString(3),
+                        Locality = reader.IsDBNull(4) ? null : reader.GetString(4),
+                        Region = reader.IsDBNull(5) ? null : reader.GetString(5),
+                        Country = reader.IsDBNull(6) ? null : reader.GetString(6),
+                        Location = reader.IsDBNull(7) ? null : reader.GetString(7)
                     });
                 }
             }

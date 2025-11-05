@@ -13,7 +13,8 @@ namespace JobApi.Lambda.LocationBatchGenerate;
 
 public class LocationBatchData
 {
-    public Guid Id { get; set; }
+    public Guid Id { get; set; } // job_location.Id
+    public Guid JobId { get; set; }
     public string? Locality { get; set; }
     public string? Region { get; set; }
     public string? Country { get; set; }
@@ -58,60 +59,77 @@ public class Function
         }
         context.Logger.LogInformation($"Loaded {lookupDict.Count} location lookup(s) from database");
 
-        // Query jobs: status = 'workplace_classified', GeneratedCity = null, IsValid = true
-        var allJobs = await db.Jobs
-            .Where(j => j.Status == "workplace_classified" && j.GeneratedCity == null && j.IsValid == true)
+        // Query job_locations: job.status = 'workplace_classified', job_location.GeneratedCity = null, job.IsValid = true
+        var allLocations = await db.JobLocations
+            .Include(jl => jl.Job)
+            .Where(jl => jl.Job!.Status == "workplace_classified" && jl.GeneratedCity == null && jl.Job.IsValid == true)
             .ToListAsync();
 
-        if (allJobs.Count == 0)
+        if (allLocations.Count == 0)
         {
-            context.Logger.LogInformation("No jobs need location normalization");
+            context.Logger.LogInformation("No job locations need location normalization");
             return;
         }
 
-        context.Logger.LogInformation($"Found {allJobs.Count} jobs needing location normalization");
+        context.Logger.LogInformation($"Found {allLocations.Count} job locations needing location normalization");
 
-        // Separate jobs: lookup matches vs. needs LLM
-        var lookupMatchedJobs = new List<Job>();
-        var jobsNeedingLLM = new List<LocationBatchData>();
+        // Separate locations: lookup matches vs. needs LLM
+        var lookupMatchedLocations = new List<JobLocation>();
+        var locationsNeedingLLM = new List<LocationBatchData>();
 
-        foreach (var job in allJobs)
+        foreach (var location in allLocations)
         {
-            if (!string.IsNullOrEmpty(job.Location) && lookupDict.TryGetValue(job.Location, out var lookup))
+            if (!string.IsNullOrEmpty(location.Location) && lookupDict.TryGetValue(location.Location, out var lookup))
             {
-                // Found a lookup match - update job directly
-                job.GeneratedCity = lookup.City;
-                job.GeneratedState = lookup.State;
-                job.GeneratedCountry = lookup.Country;
-                job.Status = "location_classified";
-                lookupMatchedJobs.Add(job);
+                // Found a lookup match - update location directly
+                location.GeneratedCity = lookup.City;
+                location.GeneratedState = lookup.State;
+                location.GeneratedCountry = lookup.Country;
+                lookupMatchedLocations.Add(location);
             }
             else
             {
                 // No lookup match - needs LLM processing
-                jobsNeedingLLM.Add(new LocationBatchData
+                locationsNeedingLLM.Add(new LocationBatchData
                 {
-                    Id = job.Id,
-                    Locality = job.Locality,
-                    Region = job.Region,
-                    Country = job.Country,
-                    Location = job.Location
+                    Id = location.Id,
+                    JobId = location.JobId,
+                    Locality = location.Locality,
+                    Region = location.Region,
+                    Country = location.Country,
+                    Location = location.Location
                 });
             }
         }
 
-        context.Logger.LogInformation($"Matched {lookupMatchedJobs.Count} job(s) via lookup table");
-        context.Logger.LogInformation($"{jobsNeedingLLM.Count} job(s) need LLM processing");
+        context.Logger.LogInformation($"Matched {lookupMatchedLocations.Count} location(s) via lookup table");
+        context.Logger.LogInformation($"{locationsNeedingLLM.Count} location(s) need LLM processing");
 
-        // Save lookup-matched jobs
-        if (lookupMatchedJobs.Count > 0)
+        // Save lookup-matched locations and update job status if all locations are classified
+        if (lookupMatchedLocations.Count > 0)
         {
             await db.SaveChangesAsync();
-            context.Logger.LogInformation($"Updated {lookupMatchedJobs.Count} job(s) to 'location_classified' via lookup");
+
+            // Check which jobs have all their locations classified
+            var jobsWithMatchedLocations = lookupMatchedLocations.Select(l => l.JobId).Distinct().ToList();
+            foreach (var jobId in jobsWithMatchedLocations)
+            {
+                var allJobLocations = await db.JobLocations.Where(jl => jl.JobId == jobId).ToListAsync();
+                if (allJobLocations.All(jl => jl.GeneratedCity != null))
+                {
+                    var job = await db.Jobs.FindAsync(jobId);
+                    if (job != null)
+                    {
+                        job.Status = "location_classified";
+                    }
+                }
+            }
+            await db.SaveChangesAsync();
+            context.Logger.LogInformation($"Updated {lookupMatchedLocations.Count} location(s) via lookup");
         }
 
-        // Process jobs that need LLM
-        if (jobsNeedingLLM.Count == 0)
+        // Process locations that need LLM
+        if (locationsNeedingLLM.Count == 0)
         {
             context.Logger.LogInformation("=== Location Batch Generation Complete ===");
             return;
@@ -121,10 +139,10 @@ public class Function
         var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
 
         // Split into batches of 25k
-        var batches = jobsNeedingLLM
-            .Select((job, index) => new { job, index })
+        var batches = locationsNeedingLLM
+            .Select((location, index) => new { location, index })
             .GroupBy(x => x.index / BatchSize)
-            .Select(g => g.Select(x => x.job).ToList())
+            .Select(g => g.Select(x => x.location).ToList())
             .ToList();
 
         context.Logger.LogInformation($"Creating {batches.Count} batch file(s)");
@@ -135,7 +153,7 @@ public class Function
             var fileName = $"location_batch_{timestamp}_{batchNum + 1}.jsonl";
             var s3Key = $"location/locationbatch/{fileName}";
 
-            context.Logger.LogInformation($"Generating batch {batchNum + 1}/{batches.Count}: {fileName} ({batch.Count} jobs)");
+            context.Logger.LogInformation($"Generating batch {batchNum + 1}/{batches.Count}: {fileName} ({batch.Count} locations)");
 
             // Generate batch file content
             var batchContent = GenerateBatchFileContent(batch);
@@ -162,8 +180,8 @@ public class Function
             await db.LocationBatches.AddAsync(locationBatch);
         }
 
-        // Update jobs' status to 'location_batches_generated'
-        var jobIds = jobsNeedingLLM.Select(j => j.Id).ToList();
+        // Update status of jobs that have locations in batch to 'location_batches_generated'
+        var jobIds = locationsNeedingLLM.Select(l => l.JobId).Distinct().ToList();
         var jobsToUpdate = await db.Jobs.Where(j => jobIds.Contains(j.Id)).ToListAsync();
         foreach (var job in jobsToUpdate)
         {
@@ -176,28 +194,28 @@ public class Function
         context.Logger.LogInformation("=== Location Batch Generation Complete ===");
     }
 
-    private string GenerateBatchFileContent(List<LocationBatchData> jobs)
+    private string GenerateBatchFileContent(List<LocationBatchData> locations)
     {
         var sb = new StringBuilder();
-        foreach (var job in jobs)
+        foreach (var location in locations)
         {
-            var batchRequest = CreateBatchRequest(job);
+            var batchRequest = CreateBatchRequest(location);
             var json = JsonSerializer.Serialize(batchRequest);
             sb.AppendLine(json);
         }
         return sb.ToString();
     }
 
-    private object CreateBatchRequest(LocationBatchData job)
+    private object CreateBatchRequest(LocationBatchData location)
     {
         // Build location context
         var locationParts = new List<string>();
-        if (!string.IsNullOrEmpty(job.Locality)) locationParts.Add(job.Locality);
-        if (!string.IsNullOrEmpty(job.Region)) locationParts.Add(job.Region);
-        if (!string.IsNullOrEmpty(job.Country)) locationParts.Add(job.Country);
+        if (!string.IsNullOrEmpty(location.Locality)) locationParts.Add(location.Locality);
+        if (!string.IsNullOrEmpty(location.Region)) locationParts.Add(location.Region);
+        if (!string.IsNullOrEmpty(location.Country)) locationParts.Add(location.Country);
         var locationContext = locationParts.Count > 0
             ? string.Join(", ", locationParts)
-            : job.Location ?? "Not specified";
+            : location.Location ?? "Not specified";
 
         var systemPrompt = @"You are a location normalizer for US job postings. Extract the city, state, and country from the location string.
 
@@ -215,7 +233,7 @@ Rules:
 
         return new
         {
-            custom_id = $"job_{job.Id}",
+            custom_id = $"location_{location.Id}",
             method = "POST",
             url = "/v1/chat/completions",
             body = new

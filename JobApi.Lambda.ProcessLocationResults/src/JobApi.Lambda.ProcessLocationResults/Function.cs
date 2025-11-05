@@ -113,7 +113,7 @@ public class Function
         context.Logger.LogInformation($"Total lines to process: {lines.Length}");
 
         var successRecords = new List<LocationRecord>();
-        var retryJobIds = new HashSet<Guid>();
+        var retryLocationIds = new HashSet<Guid>();
         var parseErrors = 0;
 
         // Parse all lines
@@ -126,12 +126,12 @@ public class Function
             {
                 var batchResponse = JsonSerializer.Deserialize<JsonElement>(line);
                 var customId = batchResponse.GetProperty("custom_id").GetString()!;
-                var jobId = Guid.Parse(customId.Replace("job_", ""));
+                var locationId = Guid.Parse(customId.Replace("location_", ""));
 
                 // Check for error
                 if (batchResponse.TryGetProperty("error", out var errorElement) && errorElement.ValueKind != JsonValueKind.Null)
                 {
-                    retryJobIds.Add(jobId);
+                    retryLocationIds.Add(locationId);
                     continue;
                 }
 
@@ -143,7 +143,7 @@ public class Function
 
                 if (string.IsNullOrWhiteSpace(contentStr))
                 {
-                    retryJobIds.Add(jobId);
+                    retryLocationIds.Add(locationId);
                     continue;
                 }
 
@@ -167,7 +167,7 @@ public class Function
                     {
                         if (stateValue.Length > 2)
                         {
-                            retryJobIds.Add(jobId);
+                            retryLocationIds.Add(locationId);
                             continue;
                         }
                         state = stateValue;
@@ -188,35 +188,19 @@ public class Function
 
                         if (countryValue.Length > 2)
                         {
-                            retryJobIds.Add(jobId);
+                            retryLocationIds.Add(locationId);
                             continue;
                         }
                         country = countryValue;
                     }
                 }
 
-                // Determine status and validity
-                string status;
-                bool isValid;
-                if (string.IsNullOrEmpty(country) || !country.Equals("US", StringComparison.OrdinalIgnoreCase))
-                {
-                    status = "invalid - non-us-location";
-                    isValid = false;
-                }
-                else
-                {
-                    status = "location_classified";
-                    isValid = true;
-                }
-
                 successRecords.Add(new LocationRecord
                 {
-                    JobId = jobId,
+                    LocationId = locationId,
                     City = city,
                     State = state,
-                    Country = country,
-                    Status = status,
-                    IsValid = isValid
+                    Country = country
                 });
             }
             catch (Exception ex)
@@ -226,12 +210,12 @@ public class Function
             }
         }
 
-        context.Logger.LogInformation($"Parsing complete: {successRecords.Count} successful, {retryJobIds.Count} retries, {parseErrors} parse errors");
+        context.Logger.LogInformation($"Parsing complete: {successRecords.Count} successful, {retryLocationIds.Count} retries, {parseErrors} parse errors");
 
         // Process in batches
-        var totalBatches = (int)Math.Ceiling((successRecords.Count + retryJobIds.Count) / (double)BatchSize);
+        var totalBatches = (int)Math.Ceiling((successRecords.Count + retryLocationIds.Count) / (double)BatchSize);
         var successBatches = successRecords.Chunk(BatchSize).ToList();
-        var retryBatches = retryJobIds.Chunk(BatchSize).ToList();
+        var retryBatches = retryLocationIds.Chunk(BatchSize).ToList();
 
         context.Logger.LogInformation($"Processing {successBatches.Count} success batches and {retryBatches.Count} retry batches");
 
@@ -255,12 +239,10 @@ public class Function
                 // Create temp table
                 await using (var cmd = new NpgsqlCommand(@"
                     CREATE TEMP TABLE temp_location_updates (
-                        job_id UUID,
+                        location_id UUID,
                         city TEXT,
                         state TEXT,
-                        country TEXT,
-                        status TEXT,
-                        is_valid BOOLEAN
+                        country TEXT
                     ) ON COMMIT DROP", conn, transaction))
                 {
                     await cmd.ExecuteNonQueryAsync();
@@ -269,39 +251,66 @@ public class Function
                 // COPY data into temp table
                 var copyStopwatch = Stopwatch.StartNew();
                 await using (var writer = await conn.BeginBinaryImportAsync(
-                    "COPY temp_location_updates (job_id, city, state, country, status, is_valid) FROM STDIN (FORMAT BINARY)"))
+                    "COPY temp_location_updates (location_id, city, state, country) FROM STDIN (FORMAT BINARY)"))
                 {
                     foreach (var record in batch)
                     {
                         await writer.StartRowAsync();
-                        await writer.WriteAsync(record.JobId, NpgsqlTypes.NpgsqlDbType.Uuid);
+                        await writer.WriteAsync(record.LocationId, NpgsqlTypes.NpgsqlDbType.Uuid);
                         await writer.WriteAsync(record.City, NpgsqlTypes.NpgsqlDbType.Text);
                         await writer.WriteAsync(record.State, NpgsqlTypes.NpgsqlDbType.Text);
                         await writer.WriteAsync(record.Country, NpgsqlTypes.NpgsqlDbType.Text);
-                        await writer.WriteAsync(record.Status, NpgsqlTypes.NpgsqlDbType.Text);
-                        await writer.WriteAsync(record.IsValid, NpgsqlTypes.NpgsqlDbType.Boolean);
                     }
                     await writer.CompleteAsync();
                 }
                 copyStopwatch.Stop();
                 context.Logger.LogInformation($"[PERF] COPY took {copyStopwatch.ElapsedMilliseconds}ms for {batch.Length} records");
 
-                // UPDATE jobs from temp table
+                // UPDATE job_locations from temp table
                 var updateStopwatch = Stopwatch.StartNew();
                 await using (var cmd = new NpgsqlCommand(@"
-                    UPDATE jobs j
+                    UPDATE job_locations jl
                     SET
                         generated_city = t.city,
                         generated_state = t.state,
-                        generated_country = t.country,
-                        status = t.status,
-                        is_valid = t.is_valid
+                        generated_country = t.country
                     FROM temp_location_updates t
-                    WHERE j.id = t.job_id", conn, transaction))
+                    WHERE jl.id = t.location_id", conn, transaction))
                 {
                     var rowsAffected = await cmd.ExecuteNonQueryAsync();
                     updateStopwatch.Stop();
                     context.Logger.LogInformation($"[PERF] UPDATE took {updateStopwatch.ElapsedMilliseconds}ms, {rowsAffected} rows affected");
+                }
+
+                // Update job status for jobs where all locations are now classified
+                var statusUpdateStopwatch = Stopwatch.StartNew();
+                await using (var statusCmd = new NpgsqlCommand(@"
+                    UPDATE jobs j
+                    SET
+                        status = CASE
+                            WHEN EXISTS (
+                                SELECT 1 FROM job_locations jl
+                                WHERE jl.job_id = j.id AND jl.generated_country = 'US'
+                            ) THEN 'location_classified'
+                            ELSE 'invalid - non-us-location'
+                        END,
+                        is_valid = EXISTS (
+                            SELECT 1 FROM job_locations jl
+                            WHERE jl.job_id = j.id AND jl.generated_country = 'US'
+                        )
+                    WHERE j.id IN (
+                        SELECT DISTINCT jl.job_id
+                        FROM job_locations jl
+                        INNER JOIN temp_location_updates t ON jl.id = t.location_id
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM job_locations jl2
+                        WHERE jl2.job_id = j.id AND jl2.generated_city IS NULL
+                    )", conn, transaction))
+                {
+                    var statusRows = await statusCmd.ExecuteNonQueryAsync();
+                    statusUpdateStopwatch.Stop();
+                    context.Logger.LogInformation($"[PERF] Status UPDATE took {statusUpdateStopwatch.ElapsedMilliseconds}ms, {statusRows} jobs updated");
                 }
 
                 await transaction.CommitAsync();
@@ -339,9 +348,9 @@ public class Function
         var lines = content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         context.Logger.LogInformation($"Total error lines to process: {lines.Length}");
 
-        var retryJobIds = new List<Guid>();
+        var retryLocationIds = new List<Guid>();
 
-        // Parse all error lines to get job IDs
+        // Parse all error lines to get location IDs
         for (int i = 0; i < lines.Length; i++)
         {
             var line = lines[i].Trim();
@@ -351,8 +360,8 @@ public class Function
             {
                 var errorEntry = JsonSerializer.Deserialize<JsonElement>(line);
                 var customId = errorEntry.GetProperty("custom_id").GetString()!;
-                var jobId = Guid.Parse(customId.Replace("job_", ""));
-                retryJobIds.Add(jobId);
+                var locationId = Guid.Parse(customId.Replace("location_", ""));
+                retryLocationIds.Add(locationId);
             }
             catch (Exception ex)
             {
@@ -360,13 +369,13 @@ public class Function
             }
         }
 
-        context.Logger.LogInformation($"Parsed {retryJobIds.Count} job IDs from error file");
+        context.Logger.LogInformation($"Parsed {retryLocationIds.Count} location IDs from error file");
 
         // Process retries in batches
         using var conn = new NpgsqlConnection(JobContext.GetConnectionString());
         await conn.OpenAsync();
 
-        var batches = retryJobIds.Chunk(BatchSize).ToList();
+        var batches = retryLocationIds.Chunk(BatchSize).ToList();
         var batchNum = 0;
 
         foreach (var batch in batches)
@@ -377,9 +386,9 @@ public class Function
         }
     }
 
-    private async Task ProcessRetryBatch(NpgsqlConnection conn, List<Guid> jobIds, ILambdaContext context)
+    private async Task ProcessRetryBatch(NpgsqlConnection conn, List<Guid> locationIds, ILambdaContext context)
     {
-        if (jobIds.Count == 0) return;
+        if (locationIds.Count == 0) return;
 
         var stopwatch = Stopwatch.StartNew();
 
@@ -387,69 +396,86 @@ public class Function
 
         try
         {
-            // Get current retry counts
+            // Get current retry counts from job_locations
             var retryCountsCmd = new NpgsqlCommand(@"
-                SELECT id, llm_location_retry_count
-                FROM jobs
+                SELECT id, llm_location_retry_count, job_id
+                FROM job_locations
                 WHERE id = ANY(@ids)", conn, transaction);
-            retryCountsCmd.Parameters.AddWithValue("ids", jobIds.ToArray());
+            retryCountsCmd.Parameters.AddWithValue("ids", locationIds.ToArray());
 
-            var retryCounts = new Dictionary<Guid, int>();
+            var retryCounts = new Dictionary<Guid, (int count, Guid jobId)>();
             await using (var reader = await retryCountsCmd.ExecuteReaderAsync())
             {
                 while (await reader.ReadAsync())
                 {
-                    retryCounts[reader.GetGuid(0)] = reader.GetInt32(1);
+                    retryCounts[reader.GetGuid(0)] = (reader.GetInt32(1), reader.GetGuid(2));
                 }
             }
 
             // Separate into retry and fail lists
             var retryList = new List<Guid>();
-            var failList = new List<Guid>();
+            var failedJobIds = new HashSet<Guid>(); // Jobs that should be marked as failed
 
-            foreach (var jobId in jobIds)
+            foreach (var locationId in locationIds)
             {
-                if (retryCounts.TryGetValue(jobId, out var currentCount))
+                if (retryCounts.TryGetValue(locationId, out var info))
                 {
-                    var newCount = currentCount + 1;
+                    var newCount = info.count + 1;
                     if (newCount >= 3)
                     {
-                        failList.Add(jobId);
+                        failedJobIds.Add(info.jobId);
                     }
                     else
                     {
-                        retryList.Add(jobId);
+                        retryList.Add(locationId);
                     }
                 }
             }
 
-            // Update retries (reset to workplace_classified)
+            // Update retry counts on job_locations
             if (retryList.Count > 0)
             {
                 var retryCmd = new NpgsqlCommand(@"
-                    UPDATE jobs
-                    SET
-                        llm_location_retry_count = llm_location_retry_count + 1,
-                        status = 'workplace_classified'
+                    UPDATE job_locations
+                    SET llm_location_retry_count = llm_location_retry_count + 1
                     WHERE id = ANY(@ids)", conn, transaction);
                 retryCmd.Parameters.AddWithValue("ids", retryList.ToArray());
                 var retryRows = await retryCmd.ExecuteNonQueryAsync();
-                context.Logger.LogInformation($"Reset {retryRows} jobs to 'workplace_classified' for retry");
+                context.Logger.LogInformation($"Incremented retry count on {retryRows} locations for retry");
+
+                // Reset job status to 'workplace_classified' for jobs with locations being retried
+                var jobRetryCmd = new NpgsqlCommand(@"
+                    UPDATE jobs
+                    SET status = 'workplace_classified'
+                    WHERE id IN (
+                        SELECT DISTINCT job_id FROM job_locations WHERE id = ANY(@ids)
+                    )", conn, transaction);
+                jobRetryCmd.Parameters.AddWithValue("ids", retryList.ToArray());
+                var jobRetryRows = await jobRetryCmd.ExecuteNonQueryAsync();
+                context.Logger.LogInformation($"Reset {jobRetryRows} jobs to 'workplace_classified' for location retry");
             }
 
-            // Update failures
-            if (failList.Count > 0)
+            // Mark failed jobs
+            if (failedJobIds.Count > 0)
             {
+                // Increment retry count on failed locations
+                var failLocationCmd = new NpgsqlCommand(@"
+                    UPDATE job_locations
+                    SET llm_location_retry_count = llm_location_retry_count + 1
+                    WHERE job_id = ANY(@job_ids)", conn, transaction);
+                failLocationCmd.Parameters.AddWithValue("job_ids", failedJobIds.ToArray());
+                await failLocationCmd.ExecuteNonQueryAsync();
+
+                // Mark jobs as failed
                 var failCmd = new NpgsqlCommand(@"
                     UPDATE jobs
                     SET
-                        llm_location_retry_count = llm_location_retry_count + 1,
                         status = 'failed - llm-location-generation',
                         is_valid = false
                     WHERE id = ANY(@ids)", conn, transaction);
-                failCmd.Parameters.AddWithValue("ids", failList.ToArray());
+                failCmd.Parameters.AddWithValue("ids", failedJobIds.ToArray());
                 var failRows = await failCmd.ExecuteNonQueryAsync();
-                context.Logger.LogInformation($"Marked {failRows} jobs as 'failed - llm-location-generation' after 3 attempts");
+                context.Logger.LogInformation($"Marked {failRows} jobs as 'failed - llm-location-generation' after 3 location classification attempts");
             }
 
             await transaction.CommitAsync();
@@ -467,11 +493,9 @@ public class Function
 
     private class LocationRecord
     {
-        public Guid JobId { get; set; }
+        public Guid LocationId { get; set; }
         public string? City { get; set; }
         public string? State { get; set; }
         public string? Country { get; set; }
-        public string Status { get; set; } = string.Empty;
-        public bool IsValid { get; set; }
     }
 }
