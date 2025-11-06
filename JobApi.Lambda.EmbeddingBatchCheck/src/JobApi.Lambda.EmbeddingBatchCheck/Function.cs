@@ -178,27 +178,27 @@ public class Function
         var fileInfo = JsonSerializer.Deserialize<JsonElement>(fileInfoContent);
         var filename = fileInfo.GetProperty("filename").GetString()!;
 
-        context.Logger.LogInformation($"  Downloading file: {filename}");
+        context.Logger.LogInformation($"  Streaming file: {filename}");
 
-        // Download the results file
-        var response = await _httpClient.GetAsync($"https://api.openai.com/v1/files/{outputFileId}/content");
+        // Stream the results file directly from OpenAI to S3 without loading into memory
+        var response = await _httpClient.GetAsync($"https://api.openai.com/v1/files/{outputFileId}/content", HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
 
-        var content = await response.Content.ReadAsStringAsync();
-        context.Logger.LogInformation($"  Downloaded {content.Length} bytes");
+        await using var contentStream = await response.Content.ReadAsStreamAsync();
+        var contentLength = response.Content.Headers.ContentLength ?? throw new Exception("Content-Length header is missing");
 
-        // Upload to S3
+        // Upload to S3 (streaming directly)
         var s3Key = $"embeddingresult/intake/{filename}";
-        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
 
         await _s3Client.PutObjectAsync(new PutObjectRequest
         {
             BucketName = _bucketName,
             Key = s3Key,
-            InputStream = stream
+            InputStream = contentStream,
+            Headers = { ContentLength = contentLength }
         });
 
-        context.Logger.LogInformation($"  Uploaded to s3://{_bucketName}/{s3Key}");
+        context.Logger.LogInformation($"  Streamed {contentLength} bytes to s3://{_bucketName}/{s3Key}");
     }
 
     private async Task DownloadAndUploadErrorFile(EmbeddingBatch batch, string errorFileId, ILambdaContext context)
@@ -211,27 +211,27 @@ public class Function
         var fileInfo = JsonSerializer.Deserialize<JsonElement>(fileInfoContent);
         var filename = fileInfo.GetProperty("filename").GetString()!;
 
-        context.Logger.LogInformation($"  Downloading error file: {filename}");
+        context.Logger.LogInformation($"  Streaming error file: {filename}");
 
-        // Download the error file
-        var response = await _httpClient.GetAsync($"https://api.openai.com/v1/files/{errorFileId}/content");
+        // Stream the error file directly from OpenAI to S3 without loading into memory
+        var response = await _httpClient.GetAsync($"https://api.openai.com/v1/files/{errorFileId}/content", HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
 
-        var content = await response.Content.ReadAsStringAsync();
-        context.Logger.LogInformation($"  Downloaded {content.Length} bytes");
+        await using var contentStream = await response.Content.ReadAsStreamAsync();
+        var contentLength = response.Content.Headers.ContentLength ?? throw new Exception("Content-Length header is missing");
 
-        // Upload to S3
+        // Upload to S3 (streaming directly)
         var s3Key = $"embeddingresult/intake/{filename}";
-        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
 
         await _s3Client.PutObjectAsync(new PutObjectRequest
         {
             BucketName = _bucketName,
             Key = s3Key,
-            InputStream = stream
+            InputStream = contentStream,
+            Headers = { ContentLength = contentLength }
         });
 
-        context.Logger.LogInformation($"  Uploaded error file to s3://{_bucketName}/{s3Key}");
+        context.Logger.LogInformation($"  Streamed error file ({contentLength} bytes) to s3://{_bucketName}/{s3Key}");
     }
 
     private class BatchStatus
