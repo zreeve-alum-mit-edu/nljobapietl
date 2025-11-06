@@ -116,7 +116,7 @@ public partial class SearchControl : UserControl
         try
         {
             var doc = JsonDocument.Parse(json);
-            return JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
         }
         catch
         {
