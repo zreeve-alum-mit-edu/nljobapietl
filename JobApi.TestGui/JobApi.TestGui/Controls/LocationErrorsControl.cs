@@ -150,7 +150,7 @@ public partial class LocationErrorsControl : UserControl
             lstSuggestions.Items.Clear();
             currentSuggestions.Clear();
 
-            if (root.TryGetProperty("exists", out var existsElement) && existsElement.GetBoolean())
+            if (root.TryGetProperty("valid", out var validElement) && validElement.GetBoolean())
             {
                 // Exact match found
                 lstSuggestions.Items.Add($"✓ {selectedLocationCity}, {selectedLocationState}, {country} (Exact Match)");
@@ -163,24 +163,29 @@ public partial class LocationErrorsControl : UserControl
                 });
             }
 
-            if (root.TryGetProperty("suggestions", out var suggestionsElement) && suggestionsElement.ValueKind == JsonValueKind.Array)
+            if (root.TryGetProperty("suggestions", out var suggestionsElement) &&
+                suggestionsElement.ValueKind == JsonValueKind.Array)
             {
                 foreach (var suggestion in suggestionsElement.EnumerateArray())
                 {
-                    var city = suggestion.GetProperty("city").GetString();
-                    var state = suggestion.GetProperty("state").GetString();
-                    var suggCountry = suggestion.TryGetProperty("country", out var countryProp) ? countryProp.GetString() : "US";
-                    var similarity = suggestion.TryGetProperty("similarity", out var simProp) ? simProp.GetDouble() : 0.0;
+                    // API returns suggestions as strings in format "City,State"
+                    var suggestionStr = suggestion.GetString();
+                    if (string.IsNullOrWhiteSpace(suggestionStr))
+                        continue;
 
-                    if (city != null && state != null)
+                    var parts = suggestionStr.Split(',');
+                    if (parts.Length >= 2)
                     {
-                        lstSuggestions.Items.Add($"{city}, {state}, {suggCountry} (similarity: {similarity:F2})");
+                        var city = parts[0].Trim();
+                        var state = parts[1].Trim();
+
+                        lstSuggestions.Items.Add($"{city}, {state}, US");
                         currentSuggestions.Add(new LocationSuggestion
                         {
                             City = city,
                             State = state,
-                            Country = suggCountry ?? "US",
-                            Similarity = similarity
+                            Country = "US",
+                            Similarity = 0.0
                         });
                     }
                 }
