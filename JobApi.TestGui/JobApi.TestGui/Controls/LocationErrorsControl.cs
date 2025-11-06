@@ -274,7 +274,21 @@ public partial class LocationErrorsControl : UserControl
 
             await cmd.ExecuteNonQueryAsync();
 
-            MessageBox.Show("Override added successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            // Delete the location errors for this city/state/country tuple
+            var deleteSql = @"
+                DELETE FROM locationerrors
+                WHERE generated_city = @genCity
+                  AND generated_state = @genState
+                  AND generated_country = @genCountry";
+
+            await using var deleteCmd = new NpgsqlCommand(deleteSql, connection);
+            deleteCmd.Parameters.AddWithValue("genCity", selectedLocationCity);
+            deleteCmd.Parameters.AddWithValue("genState", selectedLocationState);
+            deleteCmd.Parameters.AddWithValue("genCountry", selectedLocationCountry ?? "US");
+
+            var deletedCount = await deleteCmd.ExecuteNonQueryAsync();
+
+            MessageBox.Show($"Override added successfully!\n{deletedCount} location error(s) removed.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
             // Clear selection
             lstSuggestions.Items.Clear();
@@ -284,6 +298,9 @@ public partial class LocationErrorsControl : UserControl
             selectedLocationCity = null;
             selectedLocationState = null;
             selectedLocationCountry = null;
+
+            // Refresh the location errors grid
+            LoadLocationErrors();
         }
         catch (Exception ex)
         {
