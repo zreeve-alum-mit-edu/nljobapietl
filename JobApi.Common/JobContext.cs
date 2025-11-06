@@ -18,6 +18,7 @@ public class JobContext : DbContext
     public DbSet<LocationBatch> LocationBatches { get; set; }
     public DbSet<EmbeddingBatch> EmbeddingBatches { get; set; }
     public DbSet<LocationLookup> LocationLookups { get; set; }
+    public DbSet<PostProcessLocationLookup> PostProcessLocationLookups { get; set; }
     public DbSet<Geolocation> Geolocations { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -91,6 +92,13 @@ public class JobContext : DbContext
             entity.HasIndex(e => e.LocationText).IsUnique();
         });
 
+        // PostProcessLocationLookup entity configuration
+        modelBuilder.Entity<PostProcessLocationLookup>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.GeneratedCity, e.GeneratedState, e.GeneratedCountry }).IsUnique();
+        });
+
         // Geolocation entity configuration
         modelBuilder.Entity<Geolocation>(entity =>
         {
@@ -150,9 +158,8 @@ public class JobContext : DbContext
             entity.Property(e => e.Longitude)
                 .HasPrecision(10, 7);
 
-            // Configure PostGIS geography type for gistlocation
-            entity.Property(e => e.GistLocation)
-                .HasColumnType("geography(Point, 4326)");
+            // Ignore GistLocation - managed by database trigger
+            entity.Ignore(e => e.GistLocation);
 
             // Configure relationship with cascade delete
             entity.HasOne(e => e.Job)

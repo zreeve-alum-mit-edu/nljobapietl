@@ -21,18 +21,23 @@ namespace JobApi.TestGui
             this.tabAuditLogs = new System.Windows.Forms.TabPage();
             this.tabCounts = new System.Windows.Forms.TabPage();
             this.tabCentroidJobs = new System.Windows.Forms.TabPage();
+            this.tabLocationErrors = new System.Windows.Forms.TabPage();
             this.lblPrompt = new System.Windows.Forms.Label();
             this.txtPrompt = new System.Windows.Forms.TextBox();
             this.lblNumJobs = new System.Windows.Forms.Label();
             this.txtNumJobs = new System.Windows.Forms.TextBox();
             this.lblDays = new System.Windows.Forms.Label();
             this.txtDays = new System.Windows.Forms.TextBox();
+            this.lblVersion = new System.Windows.Forms.Label();
+            this.cmbVersion = new System.Windows.Forms.ComboBox();
             this.lblRemotePrompt = new System.Windows.Forms.Label();
             this.txtRemotePrompt = new System.Windows.Forms.TextBox();
             this.lblRemoteNumJobs = new System.Windows.Forms.Label();
             this.txtRemoteNumJobs = new System.Windows.Forms.TextBox();
             this.lblRemoteDays = new System.Windows.Forms.Label();
             this.txtRemoteDays = new System.Windows.Forms.TextBox();
+            this.lblRemoteVersion = new System.Windows.Forms.Label();
+            this.cmbRemoteVersion = new System.Windows.Forms.ComboBox();
             this.btnSearchRemote = new System.Windows.Forms.Button();
             this.btnClearRemote = new System.Windows.Forms.Button();
             this.txtRemoteResults = new System.Windows.Forms.TextBox();
@@ -88,6 +93,15 @@ namespace JobApi.TestGui
             this.btnCentroidLastPage = new System.Windows.Forms.Button();
             this.lblCentroidPageInfo = new System.Windows.Forms.Label();
             this.lblSelectedCentroid = new System.Windows.Forms.Label();
+            this.dgvLocationErrors = new System.Windows.Forms.DataGridView();
+            this.btnRefreshLocationErrors = new System.Windows.Forms.Button();
+            this.lblLocationErrors = new System.Windows.Forms.Label();
+            this.grpLocationValidation = new System.Windows.Forms.GroupBox();
+            this.lblSuggestions = new System.Windows.Forms.Label();
+            this.lstSuggestions = new System.Windows.Forms.ListBox();
+            this.btnValidateErrorLocation = new System.Windows.Forms.Button();
+            this.btnAddOverride = new System.Windows.Forms.Button();
+            this.lblSelectedLocation = new System.Windows.Forms.Label();
             this.tabControl.SuspendLayout();
             this.tabSearch.SuspendLayout();
             this.grpFilter.SuspendLayout();
@@ -96,10 +110,13 @@ namespace JobApi.TestGui
             this.tabAuditLogs.SuspendLayout();
             this.tabCounts.SuspendLayout();
             this.tabCentroidJobs.SuspendLayout();
+            this.tabLocationErrors.SuspendLayout();
+            this.grpLocationValidation.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.dgvAuditLogs)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.dgvJobStatusCounts)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.dgvCentroidCounts)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.dgvCentroidJobs)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.dgvLocationErrors)).BeginInit();
             this.SuspendLayout();
             //
             // tabControl
@@ -110,6 +127,7 @@ namespace JobApi.TestGui
             this.tabControl.Controls.Add(this.tabAuditLogs);
             this.tabControl.Controls.Add(this.tabCounts);
             this.tabControl.Controls.Add(this.tabCentroidJobs);
+            this.tabControl.Controls.Add(this.tabLocationErrors);
             this.tabControl.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tabControl.Location = new System.Drawing.Point(0, 0);
             this.tabControl.Name = "tabControl";
@@ -125,6 +143,8 @@ namespace JobApi.TestGui
             this.tabSearch.Controls.Add(this.btnClear);
             this.tabSearch.Controls.Add(this.btnSearch);
             this.tabSearch.Controls.Add(this.grpFilter);
+            this.tabSearch.Controls.Add(this.cmbVersion);
+            this.tabSearch.Controls.Add(this.lblVersion);
             this.tabSearch.Controls.Add(this.txtDays);
             this.tabSearch.Controls.Add(this.lblDays);
             this.tabSearch.Controls.Add(this.txtNumJobs);
@@ -188,6 +208,26 @@ namespace JobApi.TestGui
             this.txtDays.Name = "txtDays";
             this.txtDays.Size = new System.Drawing.Size(100, 23);
             this.txtDays.TabIndex = 6;
+            //
+            // lblVersion
+            //
+            this.lblVersion.AutoSize = true;
+            this.lblVersion.Location = new System.Drawing.Point(130, 106);
+            this.lblVersion.Name = "lblVersion";
+            this.lblVersion.Size = new System.Drawing.Size(68, 15);
+            this.lblVersion.TabIndex = 7;
+            this.lblVersion.Text = "API Version:";
+            //
+            // cmbVersion
+            //
+            this.cmbVersion.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbVersion.FormattingEnabled = true;
+            this.cmbVersion.Items.AddRange(new object[] { "1", "2" });
+            this.cmbVersion.Location = new System.Drawing.Point(130, 124);
+            this.cmbVersion.Name = "cmbVersion";
+            this.cmbVersion.Size = new System.Drawing.Size(100, 23);
+            this.cmbVersion.TabIndex = 8;
+            this.cmbVersion.SelectedIndex = 1;
             //
             // grpFilter
             //
@@ -447,6 +487,8 @@ namespace JobApi.TestGui
             this.tabRemoteSearch.Controls.Add(this.txtRemoteResults);
             this.tabRemoteSearch.Controls.Add(this.btnClearRemote);
             this.tabRemoteSearch.Controls.Add(this.btnSearchRemote);
+            this.tabRemoteSearch.Controls.Add(this.cmbRemoteVersion);
+            this.tabRemoteSearch.Controls.Add(this.lblRemoteVersion);
             this.tabRemoteSearch.Controls.Add(this.txtRemoteDays);
             this.tabRemoteSearch.Controls.Add(this.lblRemoteDays);
             this.tabRemoteSearch.Controls.Add(this.txtRemoteNumJobs);
@@ -510,6 +552,26 @@ namespace JobApi.TestGui
             this.txtRemoteDays.Name = "txtRemoteDays";
             this.txtRemoteDays.Size = new System.Drawing.Size(100, 23);
             this.txtRemoteDays.TabIndex = 5;
+            //
+            // lblRemoteVersion
+            //
+            this.lblRemoteVersion.AutoSize = true;
+            this.lblRemoteVersion.Location = new System.Drawing.Point(250, 106);
+            this.lblRemoteVersion.Name = "lblRemoteVersion";
+            this.lblRemoteVersion.Size = new System.Drawing.Size(68, 15);
+            this.lblRemoteVersion.TabIndex = 6;
+            this.lblRemoteVersion.Text = "API Version:";
+            //
+            // cmbRemoteVersion
+            //
+            this.cmbRemoteVersion.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbRemoteVersion.FormattingEnabled = true;
+            this.cmbRemoteVersion.Items.AddRange(new object[] { "1", "2" });
+            this.cmbRemoteVersion.Location = new System.Drawing.Point(250, 124);
+            this.cmbRemoteVersion.Name = "cmbRemoteVersion";
+            this.cmbRemoteVersion.Size = new System.Drawing.Size(100, 23);
+            this.cmbRemoteVersion.TabIndex = 7;
+            this.cmbRemoteVersion.SelectedIndex = 1;
             //
             // btnSearchRemote
             //
@@ -896,6 +958,123 @@ namespace JobApi.TestGui
             this.lblSelectedCentroid.TabIndex = 6;
             this.lblSelectedCentroid.Text = "Select a centroid from the Counts tab first";
             //
+            // tabLocationErrors
+            //
+            this.tabLocationErrors.BackColor = System.Drawing.SystemColors.Control;
+            this.tabLocationErrors.Controls.Add(this.grpLocationValidation);
+            this.tabLocationErrors.Controls.Add(this.lblLocationErrors);
+            this.tabLocationErrors.Controls.Add(this.btnRefreshLocationErrors);
+            this.tabLocationErrors.Controls.Add(this.dgvLocationErrors);
+            this.tabLocationErrors.Location = new System.Drawing.Point(4, 24);
+            this.tabLocationErrors.Name = "tabLocationErrors";
+            this.tabLocationErrors.Padding = new System.Windows.Forms.Padding(3);
+            this.tabLocationErrors.Size = new System.Drawing.Size(792, 652);
+            this.tabLocationErrors.TabIndex = 6;
+            this.tabLocationErrors.Text = "Location Errors";
+            //
+            // dgvLocationErrors
+            //
+            this.dgvLocationErrors.AllowUserToAddRows = false;
+            this.dgvLocationErrors.AllowUserToDeleteRows = false;
+            this.dgvLocationErrors.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+            this.dgvLocationErrors.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            this.dgvLocationErrors.Location = new System.Drawing.Point(12, 85);
+            this.dgvLocationErrors.Name = "dgvLocationErrors";
+            this.dgvLocationErrors.ReadOnly = true;
+            this.dgvLocationErrors.RowHeadersVisible = false;
+            this.dgvLocationErrors.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+            this.dgvLocationErrors.Size = new System.Drawing.Size(400, 520);
+            this.dgvLocationErrors.TabIndex = 0;
+            this.dgvLocationErrors.CellClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvLocationErrors_CellClick);
+            //
+            // btnRefreshLocationErrors
+            //
+            this.btnRefreshLocationErrors.Location = new System.Drawing.Point(12, 15);
+            this.btnRefreshLocationErrors.Name = "btnRefreshLocationErrors";
+            this.btnRefreshLocationErrors.Size = new System.Drawing.Size(100, 30);
+            this.btnRefreshLocationErrors.TabIndex = 1;
+            this.btnRefreshLocationErrors.Text = "Refresh";
+            this.btnRefreshLocationErrors.UseVisualStyleBackColor = true;
+            this.btnRefreshLocationErrors.Click += new System.EventHandler(this.btnRefreshLocationErrors_Click);
+            //
+            // lblLocationErrors
+            //
+            this.lblLocationErrors.AutoSize = true;
+            this.lblLocationErrors.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold);
+            this.lblLocationErrors.Location = new System.Drawing.Point(12, 60);
+            this.lblLocationErrors.Name = "lblLocationErrors";
+            this.lblLocationErrors.Size = new System.Drawing.Size(175, 19);
+            this.lblLocationErrors.TabIndex = 2;
+            this.lblLocationErrors.Text = "Location Errors by Tuple:";
+            //
+            // grpLocationValidation
+            //
+            this.grpLocationValidation.Controls.Add(this.btnAddOverride);
+            this.grpLocationValidation.Controls.Add(this.btnValidateLocation);
+            this.grpLocationValidation.Controls.Add(this.lstSuggestions);
+            this.grpLocationValidation.Controls.Add(this.lblSuggestions);
+            this.grpLocationValidation.Controls.Add(this.lblSelectedLocation);
+            this.grpLocationValidation.Location = new System.Drawing.Point(420, 85);
+            this.grpLocationValidation.Name = "grpLocationValidation";
+            this.grpLocationValidation.Size = new System.Drawing.Size(360, 520);
+            this.grpLocationValidation.TabIndex = 3;
+            this.grpLocationValidation.TabStop = false;
+            this.grpLocationValidation.Text = "Location Validation";
+            //
+            // lblSelectedLocation
+            //
+            this.lblSelectedLocation.AutoSize = true;
+            this.lblSelectedLocation.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
+            this.lblSelectedLocation.Location = new System.Drawing.Point(12, 25);
+            this.lblSelectedLocation.Name = "lblSelectedLocation";
+            this.lblSelectedLocation.Size = new System.Drawing.Size(221, 15);
+            this.lblSelectedLocation.TabIndex = 0;
+            this.lblSelectedLocation.Text = "Select a location error to validate";
+            //
+            // btnValidateLocation
+            //
+            this.btnValidateLocation.Enabled = false;
+            this.btnValidateLocation.Location = new System.Drawing.Point(12, 50);
+            this.btnValidateLocation.Name = "btnValidateLocation";
+            this.btnValidateLocation.Size = new System.Drawing.Size(120, 30);
+            this.btnValidateLocation.TabIndex = 1;
+            this.btnValidateLocation.Text = "Validate Location";
+            this.btnValidateLocation.UseVisualStyleBackColor = true;
+            this.btnValidateLocation.Click += new System.EventHandler(this.btnValidateLocation_Click);
+            //
+            // lblSuggestions
+            //
+            this.lblSuggestions.AutoSize = true;
+            this.lblSuggestions.Location = new System.Drawing.Point(12, 95);
+            this.lblSuggestions.Name = "lblSuggestions";
+            this.lblSuggestions.Size = new System.Drawing.Size(127, 15);
+            this.lblSuggestions.TabIndex = 2;
+            this.lblSuggestions.Text = "Suggested Corrections:";
+            //
+            // lstSuggestions
+            //
+            this.lstSuggestions.FormattingEnabled = true;
+            this.lstSuggestions.ItemHeight = 15;
+            this.lstSuggestions.Location = new System.Drawing.Point(12, 115);
+            this.lstSuggestions.Name = "lstSuggestions";
+            this.lstSuggestions.Size = new System.Drawing.Size(336, 334);
+            this.lstSuggestions.TabIndex = 3;
+            //
+            // btnAddOverride
+            //
+            this.btnAddOverride.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(120)))), ((int)(((byte)(215)))));
+            this.btnAddOverride.Enabled = false;
+            this.btnAddOverride.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnAddOverride.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
+            this.btnAddOverride.ForeColor = System.Drawing.Color.White;
+            this.btnAddOverride.Location = new System.Drawing.Point(12, 465);
+            this.btnAddOverride.Name = "btnAddOverride";
+            this.btnAddOverride.Size = new System.Drawing.Size(160, 35);
+            this.btnAddOverride.TabIndex = 4;
+            this.btnAddOverride.Text = "Add Override";
+            this.btnAddOverride.UseVisualStyleBackColor = false;
+            this.btnAddOverride.Click += new System.EventHandler(this.btnAddOverride_Click);
+            //
             // Form1
             //
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
@@ -922,10 +1101,15 @@ namespace JobApi.TestGui
             this.tabCounts.PerformLayout();
             this.tabCentroidJobs.ResumeLayout(false);
             this.tabCentroidJobs.PerformLayout();
+            this.tabLocationErrors.ResumeLayout(false);
+            this.tabLocationErrors.PerformLayout();
+            this.grpLocationValidation.ResumeLayout(false);
+            this.grpLocationValidation.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.dgvAuditLogs)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.dgvJobStatusCounts)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.dgvCentroidCounts)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.dgvCentroidJobs)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.dgvLocationErrors)).EndInit();
             this.ResumeLayout(false);
         }
 
@@ -1002,5 +1186,19 @@ namespace JobApi.TestGui
         private System.Windows.Forms.Button btnCentroidLastPage;
         private System.Windows.Forms.Label lblCentroidPageInfo;
         private System.Windows.Forms.Label lblSelectedCentroid;
+        private System.Windows.Forms.ComboBox cmbVersion;
+        private System.Windows.Forms.Label lblVersion;
+        private System.Windows.Forms.ComboBox cmbRemoteVersion;
+        private System.Windows.Forms.Label lblRemoteVersion;
+        private System.Windows.Forms.TabPage tabLocationErrors;
+        private System.Windows.Forms.DataGridView dgvLocationErrors;
+        private System.Windows.Forms.Button btnRefreshLocationErrors;
+        private System.Windows.Forms.Label lblLocationErrors;
+        private System.Windows.Forms.GroupBox grpLocationValidation;
+        private System.Windows.Forms.Label lblSelectedLocation;
+        private System.Windows.Forms.Button btnValidateLocation;
+        private System.Windows.Forms.Label lblSuggestions;
+        private System.Windows.Forms.ListBox lstSuggestions;
+        private System.Windows.Forms.Button btnAddOverride;
     }
 }

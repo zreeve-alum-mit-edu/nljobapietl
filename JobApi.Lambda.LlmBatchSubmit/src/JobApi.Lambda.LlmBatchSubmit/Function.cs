@@ -112,27 +112,74 @@ public class Function
 
     private async Task<string> UploadBatchFileToOpenAi(string content, string fileName, ILambdaContext context)
     {
-        using var form = new MultipartFormDataContent();
+        const int maxRetries = 5;
+        int attempt = 0;
 
-        var fileContent = new ByteArrayContent(Encoding.UTF8.GetBytes(content));
-        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
-        form.Add(fileContent, "file", fileName);
-        form.Add(new StringContent("batch"), "purpose");
-
-        var response = await _httpClient.PostAsync("https://api.openai.com/v1/files", form);
-
-        var responseContent = await response.Content.ReadAsStringAsync();
-
-        if (!response.IsSuccessStatusCode)
+        while (true)
         {
-            context.Logger.LogError($"OpenAI Files API error: {response.StatusCode}");
-            context.Logger.LogError($"Response: {responseContent}");
-            throw new HttpRequestException($"Failed to upload file to OpenAI: {response.StatusCode}");
-        }
+            attempt++;
 
-        var result = JsonSerializer.Deserialize<JsonElement>(responseContent);
-        return result.GetProperty("id").GetString()
-            ?? throw new InvalidOperationException("OpenAI did not return a file ID");
+            try
+            {
+                context.Logger.LogInformation($"Upload attempt {attempt}/{maxRetries}...");
+
+                using var form = new MultipartFormDataContent();
+
+                var fileContent = new ByteArrayContent(Encoding.UTF8.GetBytes(content));
+                fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+                form.Add(fileContent, "file", fileName);
+                form.Add(new StringContent("batch"), "purpose");
+
+                var response = await _httpClient.PostAsync("https://api.openai.com/v1/files", form);
+
+                var responseContent = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    context.Logger.LogError($"OpenAI Files API error: {response.StatusCode}");
+                    context.Logger.LogError($"Response: {responseContent}");
+
+                    // If we've exhausted all retries, throw
+                    if (attempt >= maxRetries)
+                    {
+                        throw new HttpRequestException($"Failed to upload file to OpenAI after {maxRetries} attempts: {response.StatusCode}");
+                    }
+
+                    // Calculate exponential backoff delay: 1, 2, 4, 8, 16 seconds
+                    int delaySeconds = (int)Math.Pow(2, attempt - 1);
+                    context.Logger.LogInformation($"Retrying after {delaySeconds} seconds...");
+                    await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
+                    continue;
+                }
+
+                var result = JsonSerializer.Deserialize<JsonElement>(responseContent);
+                var fileId = result.GetProperty("id").GetString()
+                    ?? throw new InvalidOperationException("OpenAI did not return a file ID");
+
+                context.Logger.LogInformation($"Upload succeeded on attempt {attempt}");
+                return fileId;
+            }
+            catch (HttpRequestException) when (attempt >= maxRetries)
+            {
+                // Re-throw if we've exhausted retries
+                throw;
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogError($"Error on attempt {attempt}: {ex.Message}");
+
+                // If we've exhausted all retries, throw
+                if (attempt >= maxRetries)
+                {
+                    throw;
+                }
+
+                // Calculate exponential backoff delay: 1, 2, 4, 8, 16 seconds
+                int delaySeconds = (int)Math.Pow(2, attempt - 1);
+                context.Logger.LogInformation($"Retrying after {delaySeconds} seconds...");
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
+            }
+        }
     }
 
     private async Task<string> CreateOpenAiBatch(string inputFileId, ILambdaContext context)

@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -41,7 +42,8 @@ public class Function
         foreach (var record in s3Event.Records)
         {
             var bucketName = record.S3.Bucket.Name;
-            var key = record.S3.Object.Key;
+            // S3 event keys are URL-encoded. Decode them before using.
+            var key = WebUtility.UrlDecode(record.S3.Object.Key);
             var fileName = Path.GetFileName(key);
             var processingKey = $"ingestable/processing/{fileName}";
             var errorKey = $"ingestable/error/{fileName}";
@@ -215,6 +217,11 @@ public class Function
                 catch (Exception ex)
                 {
                     context.Logger.LogWarning($"Line {lineCount}: Error processing line: {ex.Message}");
+                    if (ex.InnerException != null)
+                    {
+                        context.Logger.LogWarning($"Line {lineCount}: Inner exception: {ex.InnerException.Message}");
+                        context.Logger.LogWarning($"Line {lineCount}: Full inner exception: {ex.InnerException}");
+                    }
                 }
             }
 

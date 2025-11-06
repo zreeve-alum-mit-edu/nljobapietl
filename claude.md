@@ -12,8 +12,22 @@ DB_PASSWORD=mxofoyLVkiV2aQACxIbJ
 DB_PORT=5432
 ```
 
-## Correct psql Command Format
+## PostgreSQL Authentication Setup
 
+**RECOMMENDED: Use .pgpass file for persistent authentication (avoids typing PGPASSWORD)**
+
+Create a `.pgpass` file in your home directory:
+```bash
+echo "nljobsearchapi.c74ioigi2bn4.us-east-2.rds.amazonaws.com:5432:nljobsearch:JSadmin:mxofoyLVkiV2aQACxIbJ" > ~/.pgpass && chmod 600 ~/.pgpass
+```
+
+After creating `.pgpass`, you can use simplified psql commands:
+```bash
+# Simple format (recommended after .pgpass setup)
+psql -h nljobsearchapi.c74ioigi2bn4.us-east-2.rds.amazonaws.com -U JSadmin -d nljobsearch -c "SQL_QUERY_HERE"
+```
+
+**ALTERNATIVE: Use PGPASSWORD environment variable (if .pgpass not set up)**
 ```bash
 PGPASSWORD="mxofoyLVkiV2aQACxIbJ" psql -h nljobsearchapi.c74ioigi2bn4.us-east-2.rds.amazonaws.com -U JSadmin -d nljobsearch -c "SQL_QUERY_HERE"
 ```

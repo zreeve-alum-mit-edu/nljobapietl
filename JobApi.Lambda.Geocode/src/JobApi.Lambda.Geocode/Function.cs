@@ -91,11 +91,15 @@ public class Function
 
             try
             {
-                var geocodedLocationIds = new List<Guid>();
                 var geocodedWithCoordsLocationIds = new List<Guid>();
                 var geocodedLats = new List<decimal>();
                 var geocodedLons = new List<decimal>();
+                var locationErrorIds = new List<Guid>();
+                var locationErrorCities = new List<string>();
+                var locationErrorStates = new List<string>();
+                var locationErrorCountries = new List<string>();
                 var invalidJobIds = new HashSet<Guid>(); // Jobs with non-US locations
+                var locationsToCorrect = new List<(Guid locationId, string city, string state, string country)>(); // For post-process lookup
 
                 foreach (var location in locations)
                 {
@@ -109,6 +113,9 @@ public class Function
                     else if (location.city != null && location.state != null)
                     {
                         var key = $"{location.city},{location.state}".ToLowerInvariant();
+                        var currentCity = location.city;
+                        var currentState = location.state;
+                        var currentCountry = location.country ?? "US";
 
                         if (cityLookup.TryGetValue(key, out var coords))
                         {
@@ -119,16 +126,122 @@ public class Function
                         }
                         else
                         {
-                            // City not found - still mark as geocoded but leave lat/lon null
-                            geocodedLocationIds.Add(location.locationId);
-                            notFoundCount++;
+                            // City not found - check post-process lookup table
+                            await using (var lookupCmd = new NpgsqlCommand(@"
+                                SELECT city, state, country
+                                FROM post_process_location_lookups
+                                WHERE generated_city = @city
+                                  AND generated_state = @state
+                                  AND generated_country = @country", conn, transaction))
+                            {
+                                lookupCmd.Parameters.AddWithValue("city", currentCity);
+                                lookupCmd.Parameters.AddWithValue("state", currentState);
+                                lookupCmd.Parameters.AddWithValue("country", currentCountry);
+
+                                await using var lookupReader = await lookupCmd.ExecuteReaderAsync();
+                                if (await lookupReader.ReadAsync())
+                                {
+                                    // Found a correction - get corrected values
+                                    var correctedCity = lookupReader.IsDBNull(0) ? currentCity : lookupReader.GetString(0);
+                                    var correctedState = lookupReader.IsDBNull(1) ? currentState : lookupReader.GetString(1);
+                                    var correctedCountry = lookupReader.IsDBNull(2) ? currentCountry : lookupReader.GetString(2);
+
+                                    // Queue this location for correction
+                                    locationsToCorrect.Add((location.locationId, correctedCity, correctedState, correctedCountry));
+
+                                    // Try CSV lookup again with corrected values
+                                    var correctedKey = $"{correctedCity},{correctedState}".ToLowerInvariant();
+                                    if (cityLookup.TryGetValue(correctedKey, out var correctedCoords))
+                                    {
+                                        geocodedWithCoordsLocationIds.Add(location.locationId);
+                                        geocodedLats.Add(correctedCoords.lat);
+                                        geocodedLons.Add(correctedCoords.lon);
+                                        successCount++;
+                                    }
+                                    else
+                                    {
+                                        // Still not found even after correction - set to 0,0 and log
+                                        geocodedWithCoordsLocationIds.Add(location.locationId);
+                                        geocodedLats.Add(0);
+                                        geocodedLons.Add(0);
+                                        locationErrorIds.Add(location.locationId);
+                                        locationErrorCities.Add(correctedCity);
+                                        locationErrorStates.Add(correctedState);
+                                        locationErrorCountries.Add(correctedCountry);
+                                        notFoundCount++;
+                                    }
+                                }
+                                else
+                                {
+                                    // No correction found - set to 0,0 and log to locationerrors with original values
+                                    geocodedWithCoordsLocationIds.Add(location.locationId);
+                                    geocodedLats.Add(0);
+                                    geocodedLons.Add(0);
+                                    locationErrorIds.Add(location.locationId);
+                                    locationErrorCities.Add(currentCity);
+                                    locationErrorStates.Add(currentState);
+                                    locationErrorCountries.Add(currentCountry);
+                                    notFoundCount++;
+                                }
+                            }
                         }
                     }
                     else
                     {
-                        // Missing city/state - still mark as geocoded (US location but incomplete data)
-                        geocodedLocationIds.Add(location.locationId);
+                        // Missing city/state - set to 0,0 and log to locationerrors
+                        geocodedWithCoordsLocationIds.Add(location.locationId);
+                        geocodedLats.Add(0);
+                        geocodedLons.Add(0);
+                        locationErrorIds.Add(location.locationId);
+                        locationErrorCities.Add(location.city ?? "");
+                        locationErrorStates.Add(location.state ?? "");
+                        locationErrorCountries.Add(location.country ?? "US");
                         notFoundCount++;
+                    }
+                }
+
+                // Update job_locations with corrected city/state/country values
+                if (locationsToCorrect.Count > 0)
+                {
+                    // Create temp table for bulk update
+                    await using (var cmd = new NpgsqlCommand(@"
+                        CREATE TEMP TABLE temp_location_corrections (
+                            location_id UUID,
+                            city TEXT,
+                            state TEXT,
+                            country TEXT
+                        ) ON COMMIT DROP", conn, transaction))
+                    {
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+
+                    // COPY data into temp table
+                    await using (var writer = await conn.BeginBinaryImportAsync(
+                        "COPY temp_location_corrections (location_id, city, state, country) FROM STDIN (FORMAT BINARY)"))
+                    {
+                        foreach (var correction in locationsToCorrect)
+                        {
+                            await writer.StartRowAsync();
+                            await writer.WriteAsync(correction.locationId, NpgsqlTypes.NpgsqlDbType.Uuid);
+                            await writer.WriteAsync(correction.city, NpgsqlTypes.NpgsqlDbType.Text);
+                            await writer.WriteAsync(correction.state, NpgsqlTypes.NpgsqlDbType.Text);
+                            await writer.WriteAsync(correction.country, NpgsqlTypes.NpgsqlDbType.Text);
+                        }
+                        await writer.CompleteAsync();
+                    }
+
+                    // UPDATE job_locations from temp table
+                    await using (var cmd = new NpgsqlCommand(@"
+                        UPDATE job_locations jl
+                        SET
+                            generated_city = t.city,
+                            generated_state = t.state,
+                            generated_country = t.country
+                        FROM temp_location_corrections t
+                        WHERE jl.id = t.location_id", conn, transaction))
+                    {
+                        var correctedCount = await cmd.ExecuteNonQueryAsync();
+                        context.Logger.LogInformation($"Applied {correctedCount} location correction(s) from post-process lookup table");
                     }
                 }
 
@@ -173,8 +286,46 @@ public class Function
                     }
                 }
 
-                // Note: Locations without coordinates don't need any update
-                // They'll remain with latitude/longitude as NULL in job_locations table
+                // Insert location errors
+                if (locationErrorIds.Count > 0)
+                {
+                    // Create temp table for bulk insert
+                    await using (var cmd = new NpgsqlCommand(@"
+                        CREATE TEMP TABLE temp_location_errors (
+                            job_location_id UUID,
+                            generated_city TEXT,
+                            generated_state TEXT,
+                            generated_country TEXT
+                        ) ON COMMIT DROP", conn, transaction))
+                    {
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+
+                    // COPY data into temp table
+                    await using (var writer = await conn.BeginBinaryImportAsync(
+                        "COPY temp_location_errors (job_location_id, generated_city, generated_state, generated_country) FROM STDIN (FORMAT BINARY)"))
+                    {
+                        for (int i = 0; i < locationErrorIds.Count; i++)
+                        {
+                            await writer.StartRowAsync();
+                            await writer.WriteAsync(locationErrorIds[i], NpgsqlTypes.NpgsqlDbType.Uuid);
+                            await writer.WriteAsync(locationErrorCities[i], NpgsqlTypes.NpgsqlDbType.Text);
+                            await writer.WriteAsync(locationErrorStates[i], NpgsqlTypes.NpgsqlDbType.Text);
+                            await writer.WriteAsync(locationErrorCountries[i], NpgsqlTypes.NpgsqlDbType.Text);
+                        }
+                        await writer.CompleteAsync();
+                    }
+
+                    // INSERT into locationerrors from temp table (ON CONFLICT DO NOTHING to handle duplicates)
+                    await using (var cmd = new NpgsqlCommand(@"
+                        INSERT INTO locationerrors (job_location_id, generated_city, generated_state, generated_country)
+                        SELECT job_location_id, generated_city, generated_state, generated_country
+                        FROM temp_location_errors
+                        ON CONFLICT (job_location_id) DO NOTHING", conn, transaction))
+                    {
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                }
 
                 // Update invalid jobs (non-US)
                 if (invalidJobIds.Count > 0)
@@ -194,7 +345,11 @@ public class Function
 
                 await using (var cmd = new NpgsqlCommand(@"
                     UPDATE jobs j
-                    SET status = 'geocoded'
+                    SET status = CASE
+                        WHEN EXISTS (SELECT 1 FROM job_embeddings je WHERE je.job_id = j.id)
+                        THEN 'embedded'
+                        ELSE 'geocoded'
+                    END
                     WHERE j.id = ANY(@jobIds)
                     AND j.status = 'location_classified'
                     AND NOT EXISTS (
@@ -221,11 +376,15 @@ public class Function
             }
         }
 
-        // Update any remaining jobs with status 'location_classified' to 'geocoded'
+        // Update any remaining jobs with status 'location_classified' to 'geocoded' or 'embedded'
         // (these are jobs where all locations already had coordinates from a previous run)
         await using (var cmd = new NpgsqlCommand(@"
             UPDATE jobs j
-            SET status = 'geocoded'
+            SET status = CASE
+                WHEN EXISTS (SELECT 1 FROM job_embeddings je WHERE je.job_id = j.id)
+                THEN 'embedded'
+                ELSE 'geocoded'
+            END
             WHERE j.status = 'location_classified'
             AND NOT EXISTS (
                 SELECT 1 FROM job_locations jl

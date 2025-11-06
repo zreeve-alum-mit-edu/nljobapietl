@@ -83,18 +83,21 @@ public class Function
             context.Logger.LogInformation("Querying and locking jobs with status = 'ingested'...");
 
             // Query jobs and join with job_locations to get location data
-            // Since a job can have multiple locations, we'll concatenate them
+            // Use subquery to lock jobs first, then join with aggregated locations
             const string selectSql = @"
-                SELECT j.id, j.job_title, j.company_name, j.job_description,
+                SELECT locked.id, locked.job_title, locked.company_name, locked.job_description,
                        STRING_AGG(DISTINCT jl.locality, ' / ') as localities,
                        STRING_AGG(DISTINCT jl.region, ' / ') as regions,
                        STRING_AGG(DISTINCT jl.country, ' / ') as countries,
                        STRING_AGG(DISTINCT jl.location, ' / ') as locations
-                FROM jobs j
-                LEFT JOIN job_locations jl ON j.id = jl.job_id
-                WHERE j.status = 'ingested'
-                GROUP BY j.id, j.job_title, j.company_name, j.job_description
-                FOR UPDATE OF j";
+                FROM (
+                    SELECT j.id, j.job_title, j.company_name, j.job_description
+                    FROM jobs j
+                    WHERE j.status = 'ingested'
+                    FOR UPDATE
+                ) locked
+                LEFT JOIN job_locations jl ON locked.id = jl.job_id
+                GROUP BY locked.id, locked.job_title, locked.company_name, locked.job_description";
 
             var jobs = new List<JobBatchData>();
 

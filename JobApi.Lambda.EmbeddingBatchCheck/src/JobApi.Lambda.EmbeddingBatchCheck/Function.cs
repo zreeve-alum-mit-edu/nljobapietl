@@ -180,25 +180,34 @@ public class Function
 
         context.Logger.LogInformation($"  Streaming file: {filename}");
 
-        // Stream the results file directly from OpenAI to S3 without loading into memory
-        var response = await _httpClient.GetAsync($"https://api.openai.com/v1/files/{outputFileId}/content", HttpCompletionOption.ResponseHeadersRead);
-        response.EnsureSuccessStatusCode();
-
-        await using var contentStream = await response.Content.ReadAsStreamAsync();
-        var contentLength = response.Content.Headers.ContentLength ?? throw new Exception("Content-Length header is missing");
-
-        // Upload to S3 (streaming directly)
-        var s3Key = $"embeddingresult/intake/{filename}";
-
-        await _s3Client.PutObjectAsync(new PutObjectRequest
+        // Retry download with exponential backoff (OpenAI API can be flaky on large files)
+        await RetryWithBackoffAsync(async (attempt) =>
         {
-            BucketName = _bucketName,
-            Key = s3Key,
-            InputStream = contentStream,
-            Headers = { ContentLength = contentLength }
-        });
+            if (attempt > 1)
+            {
+                context.Logger.LogInformation($"  Retry attempt {attempt}/5 for {filename}");
+            }
 
-        context.Logger.LogInformation($"  Streamed {contentLength} bytes to s3://{_bucketName}/{s3Key}");
+            // Stream the results file directly from OpenAI to S3 without loading into memory
+            var response = await _httpClient.GetAsync($"https://api.openai.com/v1/files/{outputFileId}/content", HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+
+            await using var contentStream = await response.Content.ReadAsStreamAsync();
+            var contentLength = response.Content.Headers.ContentLength ?? throw new Exception("Content-Length header is missing");
+
+            // Upload to S3 (streaming directly)
+            var s3Key = $"embeddingresult/intake/{filename}";
+
+            await _s3Client.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = _bucketName,
+                Key = s3Key,
+                InputStream = contentStream,
+                Headers = { ContentLength = contentLength }
+            });
+
+            context.Logger.LogInformation($"  Streamed {contentLength} bytes to s3://{_bucketName}/{s3Key}");
+        }, context);
     }
 
     private async Task DownloadAndUploadErrorFile(EmbeddingBatch batch, string errorFileId, ILambdaContext context)
@@ -213,25 +222,74 @@ public class Function
 
         context.Logger.LogInformation($"  Streaming error file: {filename}");
 
-        // Stream the error file directly from OpenAI to S3 without loading into memory
-        var response = await _httpClient.GetAsync($"https://api.openai.com/v1/files/{errorFileId}/content", HttpCompletionOption.ResponseHeadersRead);
-        response.EnsureSuccessStatusCode();
-
-        await using var contentStream = await response.Content.ReadAsStreamAsync();
-        var contentLength = response.Content.Headers.ContentLength ?? throw new Exception("Content-Length header is missing");
-
-        // Upload to S3 (streaming directly)
-        var s3Key = $"embeddingresult/intake/{filename}";
-
-        await _s3Client.PutObjectAsync(new PutObjectRequest
+        // Retry download with exponential backoff (OpenAI API can be flaky on large files)
+        await RetryWithBackoffAsync(async (attempt) =>
         {
-            BucketName = _bucketName,
-            Key = s3Key,
-            InputStream = contentStream,
-            Headers = { ContentLength = contentLength }
-        });
+            if (attempt > 1)
+            {
+                context.Logger.LogInformation($"  Retry attempt {attempt}/5 for {filename}");
+            }
 
-        context.Logger.LogInformation($"  Streamed error file ({contentLength} bytes) to s3://{_bucketName}/{s3Key}");
+            // Stream the error file directly from OpenAI to S3 without loading into memory
+            var response = await _httpClient.GetAsync($"https://api.openai.com/v1/files/{errorFileId}/content", HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+
+            await using var contentStream = await response.Content.ReadAsStreamAsync();
+            var contentLength = response.Content.Headers.ContentLength ?? throw new Exception("Content-Length header is missing");
+
+            // Upload to S3 (streaming directly)
+            var s3Key = $"embeddingresult/intake/{filename}";
+
+            await _s3Client.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = _bucketName,
+                Key = s3Key,
+                InputStream = contentStream,
+                Headers = { ContentLength = contentLength }
+            });
+
+            context.Logger.LogInformation($"  Streamed error file ({contentLength} bytes) to s3://{_bucketName}/{s3Key}");
+        }, context);
+    }
+
+    /// <summary>
+    /// Retries an operation with exponential backoff: 2s, 4s, 8s, 16s, 32s
+    /// </summary>
+    private static async Task RetryWithBackoffAsync(Func<int, Task> operation, ILambdaContext context, int maxRetries = 5)
+    {
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                await operation(attempt);
+                return; // Success
+            }
+            catch (Exception ex) when (attempt < maxRetries && IsRetriableException(ex))
+            {
+                var delaySeconds = (int)Math.Pow(2, attempt); // 2, 4, 8, 16, 32
+                context.Logger.LogWarning($"  Attempt {attempt} failed: {ex.Message}. Retrying in {delaySeconds}s...");
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
+            }
+            catch (Exception ex) when (attempt == maxRetries)
+            {
+                context.Logger.LogError($"  All {maxRetries} retry attempts failed. Last error: {ex.Message}");
+                throw; // Rethrow on final attempt
+            }
+            catch (Exception ex) when (!IsRetriableException(ex))
+            {
+                context.Logger.LogError($"  Non-retriable error: {ex.Message}");
+                throw; // Don't retry non-retriable errors
+            }
+        }
+    }
+
+    private static bool IsRetriableException(Exception ex)
+    {
+        return ex is HttpRequestException ||
+               ex is IOException ||
+               ex is TaskCanceledException ||
+               (ex is AmazonS3Exception s3Ex && (s3Ex.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable ||
+                                                  s3Ex.StatusCode == System.Net.HttpStatusCode.InternalServerError));
     }
 
     private class BatchStatus

@@ -15,7 +15,7 @@ public class Function
 {
     private readonly IAmazonS3 _s3Client;
     private readonly string _bucketName;
-    private const int BatchSize = 20000;
+    private const int BatchSize = 5000;
     private const int MaxInputLength = 32000; // ~8000 tokens for text-embedding-3-small
 
     public Function()
@@ -47,9 +47,9 @@ public class Function
         await using var countCmd = new NpgsqlCommand(@"
             SELECT COUNT(*)
             FROM jobs j
-            WHERE NOT EXISTS (SELECT 1 FROM job_embeddings je WHERE je.job_id = j.id)
+            LEFT JOIN job_embeddings je ON je.job_id = j.id
+            WHERE (je.job_id IS NULL OR je.embedding IS NULL)
               AND j.is_valid = true
-              AND j.generated_country = 'US'
               AND j.status != 'embedding_batch_sent'", conn);
 
         var totalCount = (long)(await countCmd.ExecuteScalarAsync() ?? 0L);
@@ -78,9 +78,9 @@ public class Function
             await using (var cmd = new NpgsqlCommand(@"
                 SELECT j.id, j.job_title, j.job_description
                 FROM jobs j
-                WHERE NOT EXISTS (SELECT 1 FROM job_embeddings je WHERE je.job_id = j.id)
+                LEFT JOIN job_embeddings je ON je.job_id = j.id
+                WHERE (je.job_id IS NULL OR je.embedding IS NULL)
                   AND j.is_valid = true
-                  AND j.generated_country = 'US'
                   AND j.status != 'embedding_batch_sent'
                 ORDER BY j.id
                 LIMIT @limit OFFSET @offset", conn))

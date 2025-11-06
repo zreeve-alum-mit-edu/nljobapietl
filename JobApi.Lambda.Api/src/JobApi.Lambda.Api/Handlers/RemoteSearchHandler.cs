@@ -250,13 +250,27 @@ public class RemoteSearchHandler
                     j.job_description,
                     j.generated_workplace,
                     j.generated_workplace_confidence,
-                    j.generated_city,
-                    j.generated_state,
-                    j.job_url,
+                    first_loc.generated_city,
+                    first_loc.generated_state,
+                    first_url.url as job_url,
                     j.date_posted,
                     (je.embedding <=> @embedding::vector) as similarity_score
                 FROM job_embeddings je
                 INNER JOIN jobs j ON je.job_id = j.id
+                LEFT JOIN LATERAL (
+                    SELECT generated_city, generated_state, id
+                    FROM job_locations
+                    WHERE job_id = j.id
+                    ORDER BY id
+                    LIMIT 1
+                ) first_loc ON true
+                LEFT JOIN LATERAL (
+                    SELECT url
+                    FROM job_location_urls
+                    WHERE job_location_id = first_loc.id
+                    ORDER BY id
+                    LIMIT 1
+                ) first_url ON true
                 WHERE je.generated_workplace = 'REMOTE'
                     AND je.embedding IS NOT NULL
                     AND j.status = 'embedded'
@@ -308,7 +322,7 @@ public class RemoteSearchHandler
                 Workplace = reader.GetString(4),
                 WorkplaceConfidence = reader.IsDBNull(5) ? null : reader.GetString(5),
                 Location = location,
-                Url = reader.GetString(8),
+                Url = reader.IsDBNull(8) ? null : reader.GetString(8),
                 DatePosted = reader.IsDBNull(9) ? null : reader.GetDateTime(9)
             };
 

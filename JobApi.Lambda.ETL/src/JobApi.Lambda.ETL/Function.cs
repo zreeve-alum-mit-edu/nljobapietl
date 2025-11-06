@@ -316,14 +316,17 @@ public class Function
         copyTimer.Stop();
         context.Logger.LogInformation($"[PERF] COPY took {copyTimer.ElapsedMilliseconds}ms for {rows.Count} rows");
 
-        // INSERT into job_embeddings and UPDATE jobs.status
-        // Uses ON CONFLICT DO NOTHING for idempotency
+        // UPSERT into job_embeddings (insert if not exists, update if exists)
+        // Also copy generated_workplace from jobs table
         var updateTimer = System.Diagnostics.Stopwatch.StartNew();
-        const string insertSql = @"
-            INSERT INTO job_embeddings (job_id, embedding)
-            SELECT t.job_id, t.embedding
+        const string upsertSql = @"
+            INSERT INTO job_embeddings (job_id, embedding, generated_workplace)
+            SELECT t.job_id, t.embedding, j.generated_workplace
             FROM tmp_embeddings t
-            ON CONFLICT (job_id) DO NOTHING;
+            INNER JOIN jobs j ON t.job_id = j.id
+            ON CONFLICT (job_id) DO UPDATE
+            SET embedding = EXCLUDED.embedding,
+                generated_workplace = EXCLUDED.generated_workplace;
 
             UPDATE jobs j
             SET status = 'embedded'
@@ -331,12 +334,52 @@ public class Function
             WHERE j.id = t.job_id
               AND j.status != 'embedded';";
 
-        await using (var cmd = new NpgsqlCommand(insertSql, conn, tx))
+        await using (var cmd = new NpgsqlCommand(upsertSql, conn, tx))
         {
             cmd.CommandTimeout = 180; // 3 minutes
             var rowsAffected = await cmd.ExecuteNonQueryAsync();
             updateTimer.Stop();
-            context.Logger.LogInformation($"[PERF] INSERT/UPDATE took {updateTimer.ElapsedMilliseconds}ms, affected {rowsAffected} rows");
+            context.Logger.LogInformation($"[PERF] UPSERT/UPDATE took {updateTimer.ElapsedMilliseconds}ms, affected {rowsAffected} rows");
+        }
+
+        // Delete existing centroid assignments for these jobs
+        var deleteTimer = System.Diagnostics.Stopwatch.StartNew();
+        const string deleteSql = @"
+            DELETE FROM centroid_assignments ca
+            USING tmp_embeddings t
+            WHERE ca.job_id = t.job_id;";
+
+        await using (var deleteCmd = new NpgsqlCommand(deleteSql, conn, tx))
+        {
+            deleteCmd.CommandTimeout = 180; // 3 minutes
+            var deletedRows = await deleteCmd.ExecuteNonQueryAsync();
+            deleteTimer.Stop();
+            context.Logger.LogInformation($"[PERF] DELETE centroid_assignments took {deleteTimer.ElapsedMilliseconds}ms, deleted {deletedRows} rows");
+        }
+
+        // Find 6 closest centroids for each job and insert assignments
+        // Only process jobs that exist in the jobs table (old batches may contain deleted jobs)
+        var centroidTimer = System.Diagnostics.Stopwatch.StartNew();
+        const string centroidSql = @"
+            INSERT INTO centroid_assignments (job_id, centroid_id)
+            SELECT job_id, centroid_id
+            FROM (
+                SELECT
+                    t.job_id,
+                    c.id as centroid_id,
+                    ROW_NUMBER() OVER (PARTITION BY t.job_id ORDER BY t.embedding <=> c.centroid) as rank
+                FROM tmp_embeddings t
+                INNER JOIN jobs j ON t.job_id = j.id
+                CROSS JOIN centroids c
+            ) ranked
+            WHERE rank <= 6;";
+
+        await using (var centroidCmd = new NpgsqlCommand(centroidSql, conn, tx))
+        {
+            centroidCmd.CommandTimeout = 180; // 3 minutes
+            var centroidRows = await centroidCmd.ExecuteNonQueryAsync();
+            centroidTimer.Stop();
+            context.Logger.LogInformation($"[PERF] INSERT centroid_assignments took {centroidTimer.ElapsedMilliseconds}ms, inserted {centroidRows} rows ({centroidRows / rows.Count} per job)");
         }
 
         totalTimer.Stop();

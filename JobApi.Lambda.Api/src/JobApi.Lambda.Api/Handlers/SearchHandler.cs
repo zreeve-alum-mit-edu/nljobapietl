@@ -242,14 +242,15 @@ public class SearchHandler
             SET LOCAL jit = off;
 
             WITH base AS MATERIALIZED (
-                SELECT j.id
+                SELECT DISTINCT j.id
                 FROM jobs j
+                INNER JOIN job_locations jl ON jl.job_id = j.id
                 WHERE j.is_valid = true
                     AND j.status = 'embedded'
                     AND j.generated_workplace IN ({workplaceInClause})
-                    AND j.GISTlocation IS NOT NULL
+                    AND jl.gistlocation IS NOT NULL
                     AND ST_DWithin(
-                        j.GISTlocation,
+                        jl.gistlocation,
                         ST_SetSRID(ST_MakePoint(@lon, @lat), 4326)::geography,
                         @distance
                     )
@@ -265,15 +266,29 @@ public class SearchHandler
                 j.job_description,
                 j.generated_workplace,
                 j.generated_workplace_confidence,
-                j.generated_city,
-                j.generated_state,
-                j.job_url,
+                first_loc.generated_city,
+                first_loc.generated_state,
+                first_url.url as job_url,
                 j.date_posted,
                 (e.embedding <=> @embedding::vector) AS similarity_score,
                 (SELECT total FROM base_count) AS filtered_count
             FROM base b
             JOIN job_embeddings e ON e.job_id = b.id
             JOIN jobs j ON j.id = b.id
+            LEFT JOIN LATERAL (
+                SELECT generated_city, generated_state, id
+                FROM job_locations
+                WHERE job_id = j.id
+                ORDER BY id
+                LIMIT 1
+            ) first_loc ON true
+            LEFT JOIN LATERAL (
+                SELECT url
+                FROM job_location_urls
+                WHERE job_location_id = first_loc.id
+                ORDER BY id
+                LIMIT 1
+            ) first_url ON true
             WHERE e.embedding IS NOT NULL
             ORDER BY similarity_score, j.id
             LIMIT @limit";
@@ -310,7 +325,7 @@ public class SearchHandler
                 Workplace = reader.GetString(4),
                 WorkplaceConfidence = reader.IsDBNull(5) ? null : reader.GetString(5),
                 Location = location,
-                Url = reader.GetString(8),
+                Url = reader.IsDBNull(8) ? null : reader.GetString(8),
                 DatePosted = reader.IsDBNull(9) ? null : reader.GetDateTime(9)
             };
 

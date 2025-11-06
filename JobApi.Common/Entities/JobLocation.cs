@@ -41,7 +41,7 @@ public class JobLocation
     public decimal? Longitude { get; set; }
 
     [Column("gistlocation")]
-    public NpgsqlTypes.PostgisGeography? GistLocation { get; set; }
+    public NetTopologySuite.Geometries.Point? GistLocation { get; set; }
 
     [Column("generated_city")]
     [MaxLength(100)]

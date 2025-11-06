@@ -9,8 +9,15 @@ namespace JobApi.Lambda.Api.Handlers;
 
 public class ApiGatewayHandler
 {
-    private readonly SearchHandler _searchHandler;
-    private readonly RemoteSearchHandler _remoteSearchHandler;
+    // V1 handlers
+    private readonly SearchHandlerV1 _searchHandlerV1;
+    private readonly RemoteSearchHandlerV1 _remoteSearchHandlerV1;
+
+    // V2 handlers
+    private readonly SearchHandlerV2 _searchHandlerV2;
+    private readonly RemoteSearchHandlerV2 _remoteSearchHandlerV2;
+
+    // Shared handlers (no versioning)
     private readonly LocationHandler _locationHandler;
     private readonly HashSet<string> _apiKeys;
     private readonly AuditLogger _auditLogger;
@@ -18,8 +25,15 @@ public class ApiGatewayHandler
 
     public ApiGatewayHandler()
     {
-        _searchHandler = new SearchHandler();
-        _remoteSearchHandler = new RemoteSearchHandler();
+        // Initialize V1 handlers
+        _searchHandlerV1 = new SearchHandlerV1();
+        _remoteSearchHandlerV1 = new RemoteSearchHandlerV1();
+
+        // Initialize V2 handlers
+        _searchHandlerV2 = new SearchHandlerV2();
+        _remoteSearchHandlerV2 = new RemoteSearchHandlerV2();
+
+        // Initialize shared handlers
         _locationHandler = new LocationHandler();
 
         // Support multiple API keys (comma-separated in API_KEYS environment variable)
@@ -119,6 +133,32 @@ public class ApiGatewayHandler
         return _apiKeys.Contains(providedKey);
     }
 
+    /// <summary>
+    /// Extracts the API version from the X-API-Version header
+    /// Defaults to version 2 (highest) if not provided or invalid
+    /// </summary>
+    private int GetApiVersion(APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        var headers = request.Headers ?? new Dictionary<string, string>();
+
+        if (headers.TryGetValue("x-api-version", out var versionStr))
+        {
+            if (int.TryParse(versionStr, out var version) && (version == 1 || version == 2))
+            {
+                context.Logger.LogInformation($"Using API version {version} from header");
+                return version;
+            }
+
+            context.Logger.LogWarning($"Invalid X-API-Version header value '{versionStr}', defaulting to V2");
+        }
+        else
+        {
+            context.Logger.LogInformation("No X-API-Version header provided, defaulting to V2");
+        }
+
+        return 2; // Default to highest version
+    }
+
     private async Task<APIGatewayProxyResponse> HandleSearchRequest(
         APIGatewayProxyRequest request,
         ILambdaContext context)
@@ -202,8 +242,13 @@ public class ApiGatewayHandler
 
             context.Logger.LogInformation($"Search request validated: prompt='{searchRequest.Prompt}', numJobs={searchRequest.NumJobs}, location={searchRequest.City},{searchRequest.State}, miles={searchRequest.Miles}, onsite={searchRequest.IncludeOnsite}, hybrid={searchRequest.IncludeHybrid}");
 
-            // Call search handler
-            var response = await _searchHandler.Search(searchRequest, context);
+            // Determine API version from header (default to V2)
+            var version = GetApiVersion(request, context);
+
+            // Route to appropriate handler based on version
+            var response = version == 1
+                ? await _searchHandlerV1.Search(searchRequest, context)
+                : await _searchHandlerV2.Search(searchRequest, context);
 
             return CreateResponse(200, response);
         }
@@ -262,8 +307,13 @@ public class ApiGatewayHandler
 
             context.Logger.LogInformation($"Remote search request validated: prompt='{searchRequest.Prompt}', numJobs={searchRequest.NumJobs}, daysSince={searchRequest.DaysSincePosting}");
 
-            // Call remote search handler
-            var response = await _remoteSearchHandler.SearchRemote(searchRequest, context);
+            // Determine API version from header (default to V2)
+            var version = GetApiVersion(request, context);
+
+            // Route to appropriate handler based on version
+            var response = version == 1
+                ? await _remoteSearchHandlerV1.SearchRemote(searchRequest, context)
+                : await _remoteSearchHandlerV2.SearchRemote(searchRequest, context);
 
             return CreateResponse(200, response);
         }
