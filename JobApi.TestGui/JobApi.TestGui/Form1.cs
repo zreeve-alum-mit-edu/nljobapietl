@@ -19,6 +19,14 @@ public partial class Form1 : Form
     private int totalRecords = 0;
     private int totalPages = 0;
     private bool auditLogsLoaded = false;
+    private bool countsLoaded = false;
+
+    // Centroid jobs pagination fields
+    private int centroidCurrentPage = 1;
+    private const int centroidPageSize = 50;
+    private int centroidTotalRecords = 0;
+    private int centroidTotalPages = 0;
+    private Guid? selectedCentroidId = null;
 
     public Form1()
     {
@@ -35,6 +43,13 @@ public partial class Form1 : Form
         {
             auditLogsLoaded = true;
             LoadAuditLogs();
+        }
+
+        // Load counts when the counts tab is selected for the first time
+        if (tabControl.SelectedTab == tabCounts && !countsLoaded)
+        {
+            countsLoaded = true;
+            LoadCounts();
         }
     }
 
@@ -437,5 +452,261 @@ public partial class Form1 : Form
     private void btnRefresh_Click(object sender, EventArgs e)
     {
         LoadAuditLogs();
+    }
+
+    // ========== COUNTS TAB METHODS ==========
+
+    private async void LoadCounts()
+    {
+        try
+        {
+            btnRefreshCounts.Enabled = false;
+            btnRefreshCounts.Text = "Loading...";
+            Application.DoEvents();
+
+            await using var connection = new NpgsqlConnection(DbConnectionString);
+            await connection.OpenAsync();
+
+            // Get Job Status Counts
+            var statusSql = @"
+                SELECT status, COUNT(*) as count
+                FROM jobs
+                GROUP BY status
+                ORDER BY count DESC";
+
+            await using var statusCmd = new NpgsqlCommand(statusSql, connection);
+            var statusTable = new DataTable();
+            await using var statusReader = await statusCmd.ExecuteReaderAsync();
+            statusTable.Load(statusReader);
+            dgvJobStatusCounts.DataSource = statusTable;
+
+            // Get Centroid Counts
+            var centroidSql = @"
+                SELECT centroid_id, COUNT(*) as count
+                FROM centroid_assignments
+                GROUP BY centroid_id
+                ORDER BY count DESC";
+
+            await using var centroidCmd = new NpgsqlCommand(centroidSql, connection);
+            var centroidTable = new DataTable();
+            await using var centroidReader = await centroidCmd.ExecuteReaderAsync();
+            centroidTable.Load(centroidReader);
+            dgvCentroidCounts.DataSource = centroidTable;
+
+            // Get Total Jobs Count
+            var jobsCountSql = "SELECT COUNT(*) FROM jobs";
+            await using var jobsCountCmd = new NpgsqlCommand(jobsCountSql, connection);
+            var totalJobs = Convert.ToInt64(await jobsCountCmd.ExecuteScalarAsync());
+            lblTotalJobsValue.Text = totalJobs.ToString("N0");
+
+            // Get Total Locations Count
+            var locationsCountSql = "SELECT COUNT(*) FROM job_locations";
+            await using var locationsCountCmd = new NpgsqlCommand(locationsCountSql, connection);
+            var totalLocations = Convert.ToInt64(await locationsCountCmd.ExecuteScalarAsync());
+            lblTotalLocationsValue.Text = totalLocations.ToString("N0");
+
+            // Get Total URLs Count
+            var urlsCountSql = "SELECT COUNT(*) FROM job_location_urls";
+            await using var urlsCountCmd = new NpgsqlCommand(urlsCountSql, connection);
+            var totalUrls = Convert.ToInt64(await urlsCountCmd.ExecuteScalarAsync());
+            lblTotalUrlsValue.Text = totalUrls.ToString("N0");
+
+            // Get Invalid Locations Count
+            var invalidLocationsCountSql = "SELECT COUNT(*) FROM locationerrors";
+            await using var invalidLocationsCountCmd = new NpgsqlCommand(invalidLocationsCountSql, connection);
+            var invalidLocations = Convert.ToInt64(await invalidLocationsCountCmd.ExecuteScalarAsync());
+            lblInvalidLocationsValue.Text = invalidLocations.ToString("N0");
+
+            btnRefreshCounts.Text = "Refresh";
+            btnRefreshCounts.Enabled = true;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error loading counts: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            btnRefreshCounts.Text = "Refresh";
+            btnRefreshCounts.Enabled = true;
+        }
+    }
+
+    private void btnRefreshCounts_Click(object sender, EventArgs e)
+    {
+        LoadCounts();
+    }
+
+    // ========== CENTROID JOBS TAB METHODS ==========
+
+    private void dgvCentroidCounts_CellClick(object sender, DataGridViewCellEventArgs e)
+    {
+        // Ignore header row clicks
+        if (e.RowIndex < 0)
+            return;
+
+        try
+        {
+            // Get the selected centroid_id from the clicked row
+            var centroidIdValue = dgvCentroidCounts.Rows[e.RowIndex].Cells["centroid_id"].Value;
+
+            if (centroidIdValue != null && Guid.TryParse(centroidIdValue.ToString(), out Guid centroidId))
+            {
+                selectedCentroidId = centroidId;
+                centroidCurrentPage = 1;
+
+                // Switch to the Centroid Jobs tab
+                tabControl.SelectedTab = tabCentroidJobs;
+
+                // Load the jobs for this centroid
+                LoadCentroidJobs();
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error loading centroid jobs: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private async void LoadCentroidJobs()
+    {
+        if (!selectedCentroidId.HasValue)
+        {
+            lblSelectedCentroid.Text = "Select a centroid from the Counts tab first";
+            lblCentroidPageInfo.Text = "";
+            dgvCentroidJobs.DataSource = null;
+            return;
+        }
+
+        try
+        {
+            // Disable pagination buttons while loading
+            btnCentroidFirstPage.Enabled = false;
+            btnCentroidPreviousPage.Enabled = false;
+            btnCentroidNextPage.Enabled = false;
+            btnCentroidLastPage.Enabled = false;
+
+            lblCentroidPageInfo.Text = "Loading...";
+            Application.DoEvents();
+
+            await using var connection = new NpgsqlConnection(DbConnectionString);
+            await connection.OpenAsync();
+
+            // Get total count first
+            var countSql = @"
+                SELECT COUNT(*)
+                FROM centroid_assignments
+                WHERE centroid_id = @centroidId";
+
+            await using var countCmd = new NpgsqlCommand(countSql, connection);
+            countCmd.Parameters.AddWithValue("centroidId", selectedCentroidId.Value);
+            centroidTotalRecords = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
+            centroidTotalPages = (int)Math.Ceiling(centroidTotalRecords / (double)centroidPageSize);
+
+            // Ensure current page is valid
+            if (centroidCurrentPage > centroidTotalPages && centroidTotalPages > 0)
+            {
+                centroidCurrentPage = centroidTotalPages;
+            }
+            if (centroidCurrentPage < 1)
+            {
+                centroidCurrentPage = 1;
+            }
+
+            // Update selected centroid label
+            lblSelectedCentroid.Text = $"Jobs for Centroid: {selectedCentroidId.Value}";
+
+            // Get paginated data with job title and description, sorted by cosine distance to centroid
+            var offset = (centroidCurrentPage - 1) * centroidPageSize;
+            var sql = @"
+                SELECT
+                    (je.embedding <=> c.centroid) as cosine_distance,
+                    j.job_title,
+                    j.job_description,
+                    j.id
+                FROM centroid_assignments ca
+                INNER JOIN jobs j ON ca.job_id = j.id
+                INNER JOIN job_embeddings je ON j.id = je.job_id
+                INNER JOIN centroids c ON ca.centroid_id = c.id
+                WHERE ca.centroid_id = @centroidId
+                ORDER BY je.embedding <=> c.centroid
+                LIMIT @limit OFFSET @offset";
+
+            await using var cmd = new NpgsqlCommand(sql, connection);
+            cmd.Parameters.AddWithValue("centroidId", selectedCentroidId.Value);
+            cmd.Parameters.AddWithValue("limit", centroidPageSize);
+            cmd.Parameters.AddWithValue("offset", offset);
+
+            var dataTable = new DataTable();
+            await using var reader = await cmd.ExecuteReaderAsync();
+            dataTable.Load(reader);
+
+            // Bind to DataGridView
+            dgvCentroidJobs.DataSource = dataTable;
+
+            // Format columns
+            if (dgvCentroidJobs.Columns.Count > 0)
+            {
+                dgvCentroidJobs.Columns["cosine_distance"]!.HeaderText = "Distance";
+                dgvCentroidJobs.Columns["job_title"]!.HeaderText = "Job Title";
+                dgvCentroidJobs.Columns["job_description"]!.HeaderText = "Job Description";
+                dgvCentroidJobs.Columns["id"]!.HeaderText = "Job ID";
+
+                // Set specific column widths for better readability
+                dgvCentroidJobs.Columns["cosine_distance"]!.Width = 100;
+                dgvCentroidJobs.Columns["job_title"]!.Width = 200;
+                dgvCentroidJobs.Columns["job_description"]!.Width = 300;
+                dgvCentroidJobs.Columns["id"]!.Width = 250;
+
+                // Format distance as a number with 4 decimal places
+                dgvCentroidJobs.Columns["cosine_distance"]!.DefaultCellStyle.Format = "N4";
+            }
+
+            // Update page info
+            lblCentroidPageInfo.Text = $"Page {centroidCurrentPage} of {centroidTotalPages} ({centroidTotalRecords} total jobs)";
+
+            // Enable/disable pagination buttons based on current page
+            btnCentroidFirstPage.Enabled = centroidCurrentPage > 1;
+            btnCentroidPreviousPage.Enabled = centroidCurrentPage > 1;
+            btnCentroidNextPage.Enabled = centroidCurrentPage < centroidTotalPages;
+            btnCentroidLastPage.Enabled = centroidCurrentPage < centroidTotalPages;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error loading centroid jobs: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            lblCentroidPageInfo.Text = "Error loading data";
+
+            // Re-enable buttons
+            btnCentroidFirstPage.Enabled = true;
+            btnCentroidPreviousPage.Enabled = true;
+            btnCentroidNextPage.Enabled = true;
+            btnCentroidLastPage.Enabled = true;
+        }
+    }
+
+    private void btnCentroidFirstPage_Click(object sender, EventArgs e)
+    {
+        centroidCurrentPage = 1;
+        LoadCentroidJobs();
+    }
+
+    private void btnCentroidPreviousPage_Click(object sender, EventArgs e)
+    {
+        if (centroidCurrentPage > 1)
+        {
+            centroidCurrentPage--;
+            LoadCentroidJobs();
+        }
+    }
+
+    private void btnCentroidNextPage_Click(object sender, EventArgs e)
+    {
+        if (centroidCurrentPage < centroidTotalPages)
+        {
+            centroidCurrentPage++;
+            LoadCentroidJobs();
+        }
+    }
+
+    private void btnCentroidLastPage_Click(object sender, EventArgs e)
+    {
+        centroidCurrentPage = centroidTotalPages;
+        LoadCentroidJobs();
     }
 }

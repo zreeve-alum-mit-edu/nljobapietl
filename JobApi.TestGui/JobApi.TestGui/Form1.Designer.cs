@@ -19,6 +19,8 @@ namespace JobApi.TestGui
             this.tabSearch = new System.Windows.Forms.TabPage();
             this.tabRemoteSearch = new System.Windows.Forms.TabPage();
             this.tabAuditLogs = new System.Windows.Forms.TabPage();
+            this.tabCounts = new System.Windows.Forms.TabPage();
+            this.tabCentroidJobs = new System.Windows.Forms.TabPage();
             this.lblPrompt = new System.Windows.Forms.Label();
             this.txtPrompt = new System.Windows.Forms.TextBox();
             this.lblNumJobs = new System.Windows.Forms.Label();
@@ -66,13 +68,38 @@ namespace JobApi.TestGui
             this.btnLastPage = new System.Windows.Forms.Button();
             this.btnRefresh = new System.Windows.Forms.Button();
             this.lblPageInfo = new System.Windows.Forms.Label();
+            this.dgvJobStatusCounts = new System.Windows.Forms.DataGridView();
+            this.dgvCentroidCounts = new System.Windows.Forms.DataGridView();
+            this.lblJobStatusCounts = new System.Windows.Forms.Label();
+            this.lblCentroidCounts = new System.Windows.Forms.Label();
+            this.lblTotalJobs = new System.Windows.Forms.Label();
+            this.lblTotalLocations = new System.Windows.Forms.Label();
+            this.lblTotalUrls = new System.Windows.Forms.Label();
+            this.lblInvalidLocations = new System.Windows.Forms.Label();
+            this.lblTotalJobsValue = new System.Windows.Forms.Label();
+            this.lblTotalLocationsValue = new System.Windows.Forms.Label();
+            this.lblTotalUrlsValue = new System.Windows.Forms.Label();
+            this.lblInvalidLocationsValue = new System.Windows.Forms.Label();
+            this.btnRefreshCounts = new System.Windows.Forms.Button();
+            this.dgvCentroidJobs = new System.Windows.Forms.DataGridView();
+            this.btnCentroidFirstPage = new System.Windows.Forms.Button();
+            this.btnCentroidPreviousPage = new System.Windows.Forms.Button();
+            this.btnCentroidNextPage = new System.Windows.Forms.Button();
+            this.btnCentroidLastPage = new System.Windows.Forms.Button();
+            this.lblCentroidPageInfo = new System.Windows.Forms.Label();
+            this.lblSelectedCentroid = new System.Windows.Forms.Label();
             this.tabControl.SuspendLayout();
             this.tabSearch.SuspendLayout();
             this.grpFilter.SuspendLayout();
             this.tabRemoteSearch.SuspendLayout();
             this.tabLocation.SuspendLayout();
             this.tabAuditLogs.SuspendLayout();
+            this.tabCounts.SuspendLayout();
+            this.tabCentroidJobs.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.dgvAuditLogs)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.dgvJobStatusCounts)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.dgvCentroidCounts)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.dgvCentroidJobs)).BeginInit();
             this.SuspendLayout();
             //
             // tabControl
@@ -81,6 +108,8 @@ namespace JobApi.TestGui
             this.tabControl.Controls.Add(this.tabRemoteSearch);
             this.tabControl.Controls.Add(this.tabLocation);
             this.tabControl.Controls.Add(this.tabAuditLogs);
+            this.tabControl.Controls.Add(this.tabCounts);
+            this.tabControl.Controls.Add(this.tabCentroidJobs);
             this.tabControl.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tabControl.Location = new System.Drawing.Point(0, 0);
             this.tabControl.Name = "tabControl";
@@ -616,6 +645,257 @@ namespace JobApi.TestGui
             this.lblPageInfo.Size = new System.Drawing.Size(0, 15);
             this.lblPageInfo.TabIndex = 6;
             //
+            // tabCounts
+            //
+            this.tabCounts.BackColor = System.Drawing.SystemColors.Control;
+            this.tabCounts.Controls.Add(this.btnRefreshCounts);
+            this.tabCounts.Controls.Add(this.lblJobStatusCounts);
+            this.tabCounts.Controls.Add(this.dgvJobStatusCounts);
+            this.tabCounts.Controls.Add(this.lblCentroidCounts);
+            this.tabCounts.Controls.Add(this.dgvCentroidCounts);
+            this.tabCounts.Controls.Add(this.lblTotalJobs);
+            this.tabCounts.Controls.Add(this.lblTotalJobsValue);
+            this.tabCounts.Controls.Add(this.lblTotalLocations);
+            this.tabCounts.Controls.Add(this.lblTotalLocationsValue);
+            this.tabCounts.Controls.Add(this.lblTotalUrls);
+            this.tabCounts.Controls.Add(this.lblTotalUrlsValue);
+            this.tabCounts.Controls.Add(this.lblInvalidLocations);
+            this.tabCounts.Controls.Add(this.lblInvalidLocationsValue);
+            this.tabCounts.Location = new System.Drawing.Point(4, 24);
+            this.tabCounts.Name = "tabCounts";
+            this.tabCounts.Padding = new System.Windows.Forms.Padding(3);
+            this.tabCounts.Size = new System.Drawing.Size(792, 652);
+            this.tabCounts.TabIndex = 4;
+            this.tabCounts.Text = "Counts";
+            //
+            // btnRefreshCounts
+            //
+            this.btnRefreshCounts.Location = new System.Drawing.Point(12, 15);
+            this.btnRefreshCounts.Name = "btnRefreshCounts";
+            this.btnRefreshCounts.Size = new System.Drawing.Size(100, 30);
+            this.btnRefreshCounts.TabIndex = 0;
+            this.btnRefreshCounts.Text = "Refresh";
+            this.btnRefreshCounts.UseVisualStyleBackColor = true;
+            this.btnRefreshCounts.Click += new System.EventHandler(this.btnRefreshCounts_Click);
+            //
+            // lblJobStatusCounts
+            //
+            this.lblJobStatusCounts.AutoSize = true;
+            this.lblJobStatusCounts.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold);
+            this.lblJobStatusCounts.Location = new System.Drawing.Point(12, 60);
+            this.lblJobStatusCounts.Name = "lblJobStatusCounts";
+            this.lblJobStatusCounts.Size = new System.Drawing.Size(133, 19);
+            this.lblJobStatusCounts.TabIndex = 1;
+            this.lblJobStatusCounts.Text = "Job Status Counts:";
+            //
+            // dgvJobStatusCounts
+            //
+            this.dgvJobStatusCounts.AllowUserToAddRows = false;
+            this.dgvJobStatusCounts.AllowUserToDeleteRows = false;
+            this.dgvJobStatusCounts.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+            this.dgvJobStatusCounts.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            this.dgvJobStatusCounts.Location = new System.Drawing.Point(12, 85);
+            this.dgvJobStatusCounts.Name = "dgvJobStatusCounts";
+            this.dgvJobStatusCounts.ReadOnly = true;
+            this.dgvJobStatusCounts.RowHeadersVisible = false;
+            this.dgvJobStatusCounts.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+            this.dgvJobStatusCounts.Size = new System.Drawing.Size(365, 250);
+            this.dgvJobStatusCounts.TabIndex = 2;
+            //
+            // lblCentroidCounts
+            //
+            this.lblCentroidCounts.AutoSize = true;
+            this.lblCentroidCounts.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold);
+            this.lblCentroidCounts.Location = new System.Drawing.Point(400, 60);
+            this.lblCentroidCounts.Name = "lblCentroidCounts";
+            this.lblCentroidCounts.Size = new System.Drawing.Size(126, 19);
+            this.lblCentroidCounts.TabIndex = 3;
+            this.lblCentroidCounts.Text = "Centroid Counts:";
+            //
+            // dgvCentroidCounts
+            //
+            this.dgvCentroidCounts.AllowUserToAddRows = false;
+            this.dgvCentroidCounts.AllowUserToDeleteRows = false;
+            this.dgvCentroidCounts.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+            this.dgvCentroidCounts.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            this.dgvCentroidCounts.Location = new System.Drawing.Point(400, 85);
+            this.dgvCentroidCounts.Name = "dgvCentroidCounts";
+            this.dgvCentroidCounts.ReadOnly = true;
+            this.dgvCentroidCounts.RowHeadersVisible = false;
+            this.dgvCentroidCounts.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+            this.dgvCentroidCounts.Size = new System.Drawing.Size(365, 250);
+            this.dgvCentroidCounts.TabIndex = 4;
+            this.dgvCentroidCounts.CellClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvCentroidCounts_CellClick);
+            //
+            // lblTotalJobs
+            //
+            this.lblTotalJobs.AutoSize = true;
+            this.lblTotalJobs.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
+            this.lblTotalJobs.Location = new System.Drawing.Point(12, 360);
+            this.lblTotalJobs.Name = "lblTotalJobs";
+            this.lblTotalJobs.Size = new System.Drawing.Size(108, 15);
+            this.lblTotalJobs.TabIndex = 5;
+            this.lblTotalJobs.Text = "Total Job Records:";
+            //
+            // lblTotalJobsValue
+            //
+            this.lblTotalJobsValue.AutoSize = true;
+            this.lblTotalJobsValue.Location = new System.Drawing.Point(130, 360);
+            this.lblTotalJobsValue.Name = "lblTotalJobsValue";
+            this.lblTotalJobsValue.Size = new System.Drawing.Size(13, 15);
+            this.lblTotalJobsValue.TabIndex = 6;
+            this.lblTotalJobsValue.Text = "0";
+            //
+            // lblTotalLocations
+            //
+            this.lblTotalLocations.AutoSize = true;
+            this.lblTotalLocations.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
+            this.lblTotalLocations.Location = new System.Drawing.Point(12, 390);
+            this.lblTotalLocations.Name = "lblTotalLocations";
+            this.lblTotalLocations.Size = new System.Drawing.Size(135, 15);
+            this.lblTotalLocations.TabIndex = 7;
+            this.lblTotalLocations.Text = "Total Location Records:";
+            //
+            // lblTotalLocationsValue
+            //
+            this.lblTotalLocationsValue.AutoSize = true;
+            this.lblTotalLocationsValue.Location = new System.Drawing.Point(155, 390);
+            this.lblTotalLocationsValue.Name = "lblTotalLocationsValue";
+            this.lblTotalLocationsValue.Size = new System.Drawing.Size(13, 15);
+            this.lblTotalLocationsValue.TabIndex = 8;
+            this.lblTotalLocationsValue.Text = "0";
+            //
+            // lblTotalUrls
+            //
+            this.lblTotalUrls.AutoSize = true;
+            this.lblTotalUrls.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
+            this.lblTotalUrls.Location = new System.Drawing.Point(12, 420);
+            this.lblTotalUrls.Name = "lblTotalUrls";
+            this.lblTotalUrls.Size = new System.Drawing.Size(107, 15);
+            this.lblTotalUrls.TabIndex = 9;
+            this.lblTotalUrls.Text = "Total URL Records:";
+            //
+            // lblTotalUrlsValue
+            //
+            this.lblTotalUrlsValue.AutoSize = true;
+            this.lblTotalUrlsValue.Location = new System.Drawing.Point(130, 420);
+            this.lblTotalUrlsValue.Name = "lblTotalUrlsValue";
+            this.lblTotalUrlsValue.Size = new System.Drawing.Size(13, 15);
+            this.lblTotalUrlsValue.TabIndex = 10;
+            this.lblTotalUrlsValue.Text = "0";
+            //
+            // lblInvalidLocations
+            //
+            this.lblInvalidLocations.AutoSize = true;
+            this.lblInvalidLocations.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
+            this.lblInvalidLocations.Location = new System.Drawing.Point(12, 450);
+            this.lblInvalidLocations.Name = "lblInvalidLocations";
+            this.lblInvalidLocations.Size = new System.Drawing.Size(146, 15);
+            this.lblInvalidLocations.TabIndex = 11;
+            this.lblInvalidLocations.Text = "Invalid Location Records:";
+            //
+            // lblInvalidLocationsValue
+            //
+            this.lblInvalidLocationsValue.AutoSize = true;
+            this.lblInvalidLocationsValue.Location = new System.Drawing.Point(165, 450);
+            this.lblInvalidLocationsValue.Name = "lblInvalidLocationsValue";
+            this.lblInvalidLocationsValue.Size = new System.Drawing.Size(13, 15);
+            this.lblInvalidLocationsValue.TabIndex = 12;
+            this.lblInvalidLocationsValue.Text = "0";
+            //
+            // tabCentroidJobs
+            //
+            this.tabCentroidJobs.BackColor = System.Drawing.SystemColors.Control;
+            this.tabCentroidJobs.Controls.Add(this.lblSelectedCentroid);
+            this.tabCentroidJobs.Controls.Add(this.lblCentroidPageInfo);
+            this.tabCentroidJobs.Controls.Add(this.btnCentroidLastPage);
+            this.tabCentroidJobs.Controls.Add(this.btnCentroidNextPage);
+            this.tabCentroidJobs.Controls.Add(this.btnCentroidPreviousPage);
+            this.tabCentroidJobs.Controls.Add(this.btnCentroidFirstPage);
+            this.tabCentroidJobs.Controls.Add(this.dgvCentroidJobs);
+            this.tabCentroidJobs.Location = new System.Drawing.Point(4, 24);
+            this.tabCentroidJobs.Name = "tabCentroidJobs";
+            this.tabCentroidJobs.Padding = new System.Windows.Forms.Padding(3);
+            this.tabCentroidJobs.Size = new System.Drawing.Size(792, 652);
+            this.tabCentroidJobs.TabIndex = 5;
+            this.tabCentroidJobs.Text = "Centroid Jobs";
+            //
+            // dgvCentroidJobs
+            //
+            this.dgvCentroidJobs.AllowUserToAddRows = false;
+            this.dgvCentroidJobs.AllowUserToDeleteRows = false;
+            this.dgvCentroidJobs.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.AllCells;
+            this.dgvCentroidJobs.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            this.dgvCentroidJobs.Location = new System.Drawing.Point(12, 80);
+            this.dgvCentroidJobs.Name = "dgvCentroidJobs";
+            this.dgvCentroidJobs.ReadOnly = true;
+            this.dgvCentroidJobs.RowHeadersVisible = false;
+            this.dgvCentroidJobs.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+            this.dgvCentroidJobs.Size = new System.Drawing.Size(768, 520);
+            this.dgvCentroidJobs.TabIndex = 0;
+            //
+            // btnCentroidFirstPage
+            //
+            this.btnCentroidFirstPage.Enabled = false;
+            this.btnCentroidFirstPage.Location = new System.Drawing.Point(12, 45);
+            this.btnCentroidFirstPage.Name = "btnCentroidFirstPage";
+            this.btnCentroidFirstPage.Size = new System.Drawing.Size(75, 25);
+            this.btnCentroidFirstPage.TabIndex = 1;
+            this.btnCentroidFirstPage.Text = "First";
+            this.btnCentroidFirstPage.UseVisualStyleBackColor = true;
+            this.btnCentroidFirstPage.Click += new System.EventHandler(this.btnCentroidFirstPage_Click);
+            //
+            // btnCentroidPreviousPage
+            //
+            this.btnCentroidPreviousPage.Enabled = false;
+            this.btnCentroidPreviousPage.Location = new System.Drawing.Point(93, 45);
+            this.btnCentroidPreviousPage.Name = "btnCentroidPreviousPage";
+            this.btnCentroidPreviousPage.Size = new System.Drawing.Size(75, 25);
+            this.btnCentroidPreviousPage.TabIndex = 2;
+            this.btnCentroidPreviousPage.Text = "Previous";
+            this.btnCentroidPreviousPage.UseVisualStyleBackColor = true;
+            this.btnCentroidPreviousPage.Click += new System.EventHandler(this.btnCentroidPreviousPage_Click);
+            //
+            // btnCentroidNextPage
+            //
+            this.btnCentroidNextPage.Enabled = false;
+            this.btnCentroidNextPage.Location = new System.Drawing.Point(174, 45);
+            this.btnCentroidNextPage.Name = "btnCentroidNextPage";
+            this.btnCentroidNextPage.Size = new System.Drawing.Size(75, 25);
+            this.btnCentroidNextPage.TabIndex = 3;
+            this.btnCentroidNextPage.Text = "Next";
+            this.btnCentroidNextPage.UseVisualStyleBackColor = true;
+            this.btnCentroidNextPage.Click += new System.EventHandler(this.btnCentroidNextPage_Click);
+            //
+            // btnCentroidLastPage
+            //
+            this.btnCentroidLastPage.Enabled = false;
+            this.btnCentroidLastPage.Location = new System.Drawing.Point(255, 45);
+            this.btnCentroidLastPage.Name = "btnCentroidLastPage";
+            this.btnCentroidLastPage.Size = new System.Drawing.Size(75, 25);
+            this.btnCentroidLastPage.TabIndex = 4;
+            this.btnCentroidLastPage.Text = "Last";
+            this.btnCentroidLastPage.UseVisualStyleBackColor = true;
+            this.btnCentroidLastPage.Click += new System.EventHandler(this.btnCentroidLastPage_Click);
+            //
+            // lblCentroidPageInfo
+            //
+            this.lblCentroidPageInfo.AutoSize = true;
+            this.lblCentroidPageInfo.Location = new System.Drawing.Point(350, 50);
+            this.lblCentroidPageInfo.Name = "lblCentroidPageInfo";
+            this.lblCentroidPageInfo.Size = new System.Drawing.Size(0, 15);
+            this.lblCentroidPageInfo.TabIndex = 5;
+            //
+            // lblSelectedCentroid
+            //
+            this.lblSelectedCentroid.AutoSize = true;
+            this.lblSelectedCentroid.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold);
+            this.lblSelectedCentroid.Location = new System.Drawing.Point(12, 15);
+            this.lblSelectedCentroid.Name = "lblSelectedCentroid";
+            this.lblSelectedCentroid.Size = new System.Drawing.Size(293, 19);
+            this.lblSelectedCentroid.TabIndex = 6;
+            this.lblSelectedCentroid.Text = "Select a centroid from the Counts tab first";
+            //
             // Form1
             //
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
@@ -638,7 +918,14 @@ namespace JobApi.TestGui
             this.tabLocation.PerformLayout();
             this.tabAuditLogs.ResumeLayout(false);
             this.tabAuditLogs.PerformLayout();
+            this.tabCounts.ResumeLayout(false);
+            this.tabCounts.PerformLayout();
+            this.tabCentroidJobs.ResumeLayout(false);
+            this.tabCentroidJobs.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)(this.dgvAuditLogs)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.dgvJobStatusCounts)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.dgvCentroidCounts)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.dgvCentroidJobs)).EndInit();
             this.ResumeLayout(false);
         }
 
@@ -693,5 +980,27 @@ namespace JobApi.TestGui
         private System.Windows.Forms.Button btnLastPage;
         private System.Windows.Forms.Button btnRefresh;
         private System.Windows.Forms.Label lblPageInfo;
+        private System.Windows.Forms.TabPage tabCounts;
+        private System.Windows.Forms.DataGridView dgvJobStatusCounts;
+        private System.Windows.Forms.DataGridView dgvCentroidCounts;
+        private System.Windows.Forms.Label lblJobStatusCounts;
+        private System.Windows.Forms.Label lblCentroidCounts;
+        private System.Windows.Forms.Label lblTotalJobs;
+        private System.Windows.Forms.Label lblTotalLocations;
+        private System.Windows.Forms.Label lblTotalUrls;
+        private System.Windows.Forms.Label lblInvalidLocations;
+        private System.Windows.Forms.Label lblTotalJobsValue;
+        private System.Windows.Forms.Label lblTotalLocationsValue;
+        private System.Windows.Forms.Label lblTotalUrlsValue;
+        private System.Windows.Forms.Label lblInvalidLocationsValue;
+        private System.Windows.Forms.Button btnRefreshCounts;
+        private System.Windows.Forms.TabPage tabCentroidJobs;
+        private System.Windows.Forms.DataGridView dgvCentroidJobs;
+        private System.Windows.Forms.Button btnCentroidFirstPage;
+        private System.Windows.Forms.Button btnCentroidPreviousPage;
+        private System.Windows.Forms.Button btnCentroidNextPage;
+        private System.Windows.Forms.Button btnCentroidLastPage;
+        private System.Windows.Forms.Label lblCentroidPageInfo;
+        private System.Windows.Forms.Label lblSelectedCentroid;
     }
 }
