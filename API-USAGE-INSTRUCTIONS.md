@@ -14,6 +14,34 @@ All requests require an API key in the `x-api-key` header:
 x-api-key: HHTnWCCgx2uCP7Ia3ZVB80SI6lviPPK0gR7eG8Ne
 ```
 
+## API Versioning
+
+The `/search` and `/search/remote` endpoints support API versioning via the `X-API-Version` header:
+
+- **V2 (Default)**: Uses centroid-based filtering for improved search quality and relevance
+- **V1 (Legacy)**: Available for backwards compatibility
+
+**To use V2 (recommended):**
+```bash
+# V2 is the default - no header needed
+curl -X POST https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search/remote \
+  -H "x-api-key: HHTnWCCgx2uCP7Ia3ZVB80SI6lviPPK0gR7eG8Ne" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "...", "numJobs": 10}'
+```
+
+**To use V1 (legacy):**
+```bash
+# Explicitly request V1 with header
+curl -X POST https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search/remote \
+  -H "x-api-key: HHTnWCCgx2uCP7Ia3ZVB80SI6lviPPK0gR7eG8Ne" \
+  -H "X-API-Version: 1" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "...", "numJobs": 10}'
+```
+
+**Note:** V2 is recommended for all new integrations. V1 is maintained only for existing clients.
+
 ---
 
 ## Endpoint 1: Location Validation
