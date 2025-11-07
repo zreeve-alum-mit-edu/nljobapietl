@@ -25,6 +25,7 @@ namespace JobApi.TestGui
             this.tabCounts = new System.Windows.Forms.TabPage();
             this.tabCentroidJobs = new System.Windows.Forms.TabPage();
             this.tabLocationErrors = new System.Windows.Forms.TabPage();
+            this.tabLocationLookups = new System.Windows.Forms.TabPage();
             this.searchControl = new SearchControl();
             this.remoteSearchControl = new RemoteSearchControl();
             this.locationValidationControl = new LocationValidationControl();
@@ -32,6 +33,7 @@ namespace JobApi.TestGui
             this.countsControl = new CountsControl();
             this.centroidJobsControl = new CentroidJobsControl();
             this.locationErrorsControl = new LocationErrorsControl();
+            this.locationLookupsControl = new LocationLookupsControl();
             this.tabControl.SuspendLayout();
             this.tabSearch.SuspendLayout();
             this.tabRemoteSearch.SuspendLayout();
@@ -40,6 +42,7 @@ namespace JobApi.TestGui
             this.tabCounts.SuspendLayout();
             this.tabCentroidJobs.SuspendLayout();
             this.tabLocationErrors.SuspendLayout();
+            this.tabLocationLookups.SuspendLayout();
             this.SuspendLayout();
             //
             // tabControl
@@ -51,6 +54,7 @@ namespace JobApi.TestGui
             this.tabControl.Controls.Add(this.tabCounts);
             this.tabControl.Controls.Add(this.tabCentroidJobs);
             this.tabControl.Controls.Add(this.tabLocationErrors);
+            this.tabControl.Controls.Add(this.tabLocationLookups);
             this.tabControl.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tabControl.Location = new System.Drawing.Point(0, 0);
             this.tabControl.Name = "tabControl";
@@ -192,6 +196,25 @@ namespace JobApi.TestGui
             this.locationErrorsControl.Size = new System.Drawing.Size(786, 646);
             this.locationErrorsControl.TabIndex = 0;
             //
+            // tabLocationLookups
+            //
+            this.tabLocationLookups.BackColor = System.Drawing.SystemColors.Control;
+            this.tabLocationLookups.Controls.Add(this.locationLookupsControl);
+            this.tabLocationLookups.Location = new System.Drawing.Point(4, 24);
+            this.tabLocationLookups.Name = "tabLocationLookups";
+            this.tabLocationLookups.Padding = new System.Windows.Forms.Padding(3);
+            this.tabLocationLookups.Size = new System.Drawing.Size(792, 652);
+            this.tabLocationLookups.TabIndex = 7;
+            this.tabLocationLookups.Text = "Location Lookups";
+            //
+            // locationLookupsControl
+            //
+            this.locationLookupsControl.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.locationLookupsControl.Location = new System.Drawing.Point(3, 3);
+            this.locationLookupsControl.Name = "locationLookupsControl";
+            this.locationLookupsControl.Size = new System.Drawing.Size(786, 646);
+            this.locationLookupsControl.TabIndex = 0;
+            //
             // Form1
             //
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
@@ -211,6 +234,7 @@ namespace JobApi.TestGui
             this.tabCounts.ResumeLayout(false);
             this.tabCentroidJobs.ResumeLayout(false);
             this.tabLocationErrors.ResumeLayout(false);
+            this.tabLocationLookups.ResumeLayout(false);
             this.ResumeLayout(false);
         }
 
@@ -222,6 +246,7 @@ namespace JobApi.TestGui
         private System.Windows.Forms.TabPage tabCounts;
         private System.Windows.Forms.TabPage tabCentroidJobs;
         private System.Windows.Forms.TabPage tabLocationErrors;
+        private System.Windows.Forms.TabPage tabLocationLookups;
         private SearchControl searchControl;
         private RemoteSearchControl remoteSearchControl;
         private LocationValidationControl locationValidationControl;
@@ -229,5 +254,6 @@ namespace JobApi.TestGui
         private CountsControl countsControl;
         private CentroidJobsControl centroidJobsControl;
         private LocationErrorsControl locationErrorsControl;
+        private LocationLookupsControl locationLookupsControl;
     }
 }

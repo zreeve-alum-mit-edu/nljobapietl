@@ -5,6 +5,7 @@ public partial class Form1 : Form
     private bool auditLogsLoaded = false;
     private bool countsLoaded = false;
     private bool locationErrorsLoaded = false;
+    private bool locationLookupsLoaded = false;
 
     public Form1()
     {
@@ -38,6 +39,13 @@ public partial class Form1 : Form
         {
             locationErrorsLoaded = true;
             locationErrorsControl.LoadData();
+        }
+
+        // Load location lookups when the location lookups tab is selected for the first time
+        if (tabControl.SelectedTab == tabLocationLookups && !locationLookupsLoaded)
+        {
+            locationLookupsLoaded = true;
+            locationLookupsControl.LoadData();
         }
     }
 

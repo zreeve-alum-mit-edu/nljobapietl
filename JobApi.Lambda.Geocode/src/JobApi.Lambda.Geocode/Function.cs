@@ -59,10 +59,10 @@ public class Function
             var batchStopwatch = Stopwatch.StartNew();
 
             // Fetch batch
-            var locations = new List<(Guid locationId, Guid jobId, string? city, string? state, string? country)>();
+            var locations = new List<(Guid locationId, Guid jobId, string? city, string? state, string? country, string? locationText)>();
 
             await using (var cmd = new NpgsqlCommand(@"
-                SELECT jl.id, jl.job_id, jl.generated_city, jl.generated_state, jl.generated_country
+                SELECT jl.id, jl.job_id, jl.generated_city, jl.generated_state, jl.generated_country, jl.location
                 FROM job_locations jl
                 INNER JOIN jobs j ON jl.job_id = j.id
                 WHERE j.status = 'location_classified' AND jl.latitude IS NULL
@@ -78,7 +78,8 @@ public class Function
                         reader.GetGuid(1),
                         reader.IsDBNull(2) ? null : reader.GetString(2),
                         reader.IsDBNull(3) ? null : reader.GetString(3),
-                        reader.IsDBNull(4) ? null : reader.GetString(4)
+                        reader.IsDBNull(4) ? null : reader.GetString(4),
+                        reader.IsDBNull(5) ? null : reader.GetString(5)
                     ));
                 }
             }
@@ -100,6 +101,7 @@ public class Function
                 var locationErrorCountries = new List<string>();
                 var invalidJobIds = new HashSet<Guid>(); // Jobs with non-US locations
                 var locationsToCorrect = new List<(Guid locationId, string city, string state, string country)>(); // For post-process lookup
+                var successfulGeocodes = new List<(string locationText, string city, string state, string country)>(); // For confidence tracking
 
                 foreach (var location in locations)
                 {
@@ -123,6 +125,12 @@ public class Function
                             geocodedLats.Add(coords.lat);
                             geocodedLons.Add(coords.lon);
                             successCount++;
+
+                            // Track for confidence update
+                            if (!string.IsNullOrWhiteSpace(location.locationText))
+                            {
+                                successfulGeocodes.Add((location.locationText, currentCity, currentState, currentCountry));
+                            }
                         }
                         else
                         {
@@ -157,6 +165,12 @@ public class Function
                                         geocodedLats.Add(correctedCoords.lat);
                                         geocodedLons.Add(correctedCoords.lon);
                                         successCount++;
+
+                                        // Track for confidence update (use corrected values)
+                                        if (!string.IsNullOrWhiteSpace(location.locationText))
+                                        {
+                                            successfulGeocodes.Add((location.locationText, correctedCity, correctedState, correctedCountry));
+                                        }
                                     }
                                     else
                                     {
@@ -284,6 +298,81 @@ public class Function
                     {
                         await cmd.ExecuteNonQueryAsync();
                     }
+                }
+
+                // Update location_lookups confidence for successful geocodes
+                if (successfulGeocodes.Count > 0)
+                {
+                    foreach (var geocode in successfulGeocodes)
+                    {
+                        // Check if lookup exists and matches
+                        await using (var checkCmd = new NpgsqlCommand(@"
+                            SELECT city, state, country, confidence
+                            FROM location_lookups
+                            WHERE LOWER(location_text) = LOWER(@locationText)", conn, transaction))
+                        {
+                            checkCmd.Parameters.AddWithValue("locationText", geocode.locationText);
+
+                            await using var lookupReader = await checkCmd.ExecuteReaderAsync();
+                            if (await lookupReader.ReadAsync())
+                            {
+                                // Lookup exists - check if values match
+                                var existingCity = lookupReader.IsDBNull(0) ? null : lookupReader.GetString(0);
+                                var existingState = lookupReader.IsDBNull(1) ? null : lookupReader.GetString(1);
+                                var existingCountry = lookupReader.IsDBNull(2) ? null : lookupReader.GetString(2);
+                                var existingConfidence = lookupReader.GetInt32(3);
+
+                                await lookupReader.CloseAsync();
+
+                                if (string.Equals(existingCity, geocode.city, StringComparison.OrdinalIgnoreCase) &&
+                                    string.Equals(existingState, geocode.state, StringComparison.OrdinalIgnoreCase) &&
+                                    string.Equals(existingCountry, geocode.country, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    // Values match - increment confidence
+                                    await using var updateCmd = new NpgsqlCommand(@"
+                                        UPDATE location_lookups
+                                        SET confidence = confidence + 1
+                                        WHERE LOWER(location_text) = LOWER(@locationText)", conn, transaction);
+                                    updateCmd.Parameters.AddWithValue("locationText", geocode.locationText);
+                                    await updateCmd.ExecuteNonQueryAsync();
+                                }
+                                else
+                                {
+                                    // Values don't match - update with new values and reset confidence
+                                    await using var updateCmd = new NpgsqlCommand(@"
+                                        UPDATE location_lookups
+                                        SET city = @city,
+                                            state = @state,
+                                            country = @country,
+                                            confidence = 0
+                                        WHERE LOWER(location_text) = LOWER(@locationText)", conn, transaction);
+                                    updateCmd.Parameters.AddWithValue("locationText", geocode.locationText);
+                                    updateCmd.Parameters.AddWithValue("city", geocode.city);
+                                    updateCmd.Parameters.AddWithValue("state", geocode.state);
+                                    updateCmd.Parameters.AddWithValue("country", geocode.country);
+                                    await updateCmd.ExecuteNonQueryAsync();
+                                }
+                            }
+                            else
+                            {
+                                await lookupReader.CloseAsync();
+
+                                // Lookup doesn't exist - insert new entry with confidence 0
+                                await using var insertCmd = new NpgsqlCommand(@"
+                                    INSERT INTO location_lookups (id, location_text, city, state, country, confidence, created_at)
+                                    VALUES (@id, @locationText, @city, @state, @country, 0, @createdAt)", conn, transaction);
+                                insertCmd.Parameters.AddWithValue("id", Guid.NewGuid());
+                                insertCmd.Parameters.AddWithValue("locationText", geocode.locationText);
+                                insertCmd.Parameters.AddWithValue("city", geocode.city);
+                                insertCmd.Parameters.AddWithValue("state", geocode.state);
+                                insertCmd.Parameters.AddWithValue("country", geocode.country);
+                                insertCmd.Parameters.AddWithValue("createdAt", DateTime.UtcNow);
+                                await insertCmd.ExecuteNonQueryAsync();
+                            }
+                        }
+                    }
+
+                    context.Logger.LogInformation($"Updated confidence for {successfulGeocodes.Count} location lookup(s)");
                 }
 
                 // Insert location errors

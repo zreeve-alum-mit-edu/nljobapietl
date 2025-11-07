@@ -421,6 +421,10 @@ namespace JobApi.Common.Migrations
                         .HasColumnType("character varying(2)")
                         .HasColumnName("country");
 
+                    b.Property<int>("Confidence")
+                        .HasColumnType("integer")
+                        .HasColumnName("confidence");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");

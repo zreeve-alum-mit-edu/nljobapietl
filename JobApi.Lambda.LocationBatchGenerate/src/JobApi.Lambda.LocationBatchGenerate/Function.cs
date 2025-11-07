@@ -79,9 +79,11 @@ public class Function
 
         foreach (var location in allLocations)
         {
-            if (!string.IsNullOrEmpty(location.Location) && lookupDict.TryGetValue(location.Location, out var lookup))
+            if (!string.IsNullOrEmpty(location.Location) &&
+                lookupDict.TryGetValue(location.Location, out var lookup) &&
+                lookup.Confidence >= 10)
             {
-                // Found a lookup match - update location directly
+                // Found a lookup match with sufficient confidence - update location directly
                 location.GeneratedCity = lookup.City;
                 location.GeneratedState = lookup.State;
                 location.GeneratedCountry = lookup.Country;
@@ -89,7 +91,7 @@ public class Function
             }
             else
             {
-                // No lookup match - needs LLM processing
+                // No lookup match or insufficient confidence - needs LLM processing
                 locationsNeedingLLM.Add(new LocationBatchData
                 {
                     Id = location.Id,

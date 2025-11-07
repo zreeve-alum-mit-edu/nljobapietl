@@ -27,6 +27,9 @@ public class LocationLookup
     [MaxLength(2)]
     public string? Country { get; set; }
 
+    [Column("confidence")]
+    public int Confidence { get; set; } = 0;
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
