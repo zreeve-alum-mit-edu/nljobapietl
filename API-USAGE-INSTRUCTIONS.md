@@ -2,9 +2,10 @@
 
 ## API Overview
 
-The API has two endpoints:
+The API has three endpoints:
 1. **Location Validation** - Validate city/state and get suggestions if needed
-2. **Job Search** - Search for jobs using natural language
+2. **Job Search** - Search for on-site/hybrid jobs in a specific location
+3. **Remote Job Search** - Search for remote-only jobs
 
 ## Authentication
 
@@ -96,9 +97,9 @@ curl -X GET "https://42r7s00kck.execute-api.us-east-2.amazonaws.com/locations/va
 
 ---
 
-## Endpoint 2: Job Search
+## Endpoint 2: Job Search (On-site/Hybrid)
 
-**Purpose**: Search for jobs using natural language and location filters. Use validated locations from the first endpoint to ensure accurate results.
+**Purpose**: Search for on-site or hybrid jobs in a specific location using natural language. Use validated locations from the first endpoint to ensure accurate results.
 
 ### Request Format
 ```
@@ -111,16 +112,12 @@ Content-Type: application/json
 {
   "prompt": "natural language job description",
   "numJobs": 10,
-  "includeRemote": true,
-  "daysSincePosting": 30,
-  "filters": [
-    {
-      "includeOnsite": true,
-      "includeHybrid": true,
-      "location": "City,State",
-      "miles": 50
-    }
-  ]
+  "city": "Austin",
+  "state": "TX",
+  "miles": 20,
+  "includeOnsite": true,
+  "includeHybrid": true,
+  "daysSincePosting": 30
 }
 ```
 
@@ -132,23 +129,78 @@ Content-Type: application/json
 
 - **numJobs** (required): Number of results (1-100)
 
-- **includeRemote** (required): Boolean flag to include remote positions in results
-  - Set to `true` to include remote jobs
-  - Set to `false` to exclude remote jobs
+- **city** (required): City name (e.g., "Austin", "New York City")
+  - Use the exact city name returned by the location validation endpoint
+
+- **state** (required): Two-letter state code (e.g., "TX", "NY")
+
+- **miles** (required): Search radius in miles (1-20)
+  - Jobs within this distance from the location will be included
+
+- **includeOnsite** (required): Boolean flag to include on-site positions
+  - Set to `true` to include on-site jobs
+  - At least one of `includeOnsite` or `includeHybrid` must be `true`
+
+- **includeHybrid** (required): Boolean flag to include hybrid positions
+  - Set to `true` to include hybrid jobs
+  - At least one of `includeOnsite` or `includeHybrid` must be `true`
 
 - **daysSincePosting** (optional): Filter jobs posted within the last N days
   - Example: `30` for jobs posted in the last 30 days
   - Omit this parameter to search all jobs regardless of posting date
 
-- **filters** (optional): Array of location-based workplace filters (0-10 filters)
-  - **includeOnsite** (required): Boolean flag to include on-site positions at this location
-  - **includeHybrid** (required): Boolean flag to include hybrid positions at this location
-    - At least one of `includeOnsite` or `includeHybrid` must be `true`
-  - **location** (required): City and state in format "City,State"
-    - Use the exact format returned by the location validation endpoint
-    - Example: "Austin,TX" or "New York City,NY"
-  - **miles** (required): Search radius in miles (1-500)
-    - Jobs within this distance from the location will be included
+### Response Format
+```json
+{
+  "jobs": [
+    {
+      "id": "uuid",
+      "title": "Senior Software Engineer",
+      "company": "Company Name",
+      "description": "Job description...",
+      "workplace": "ONSITE",
+      "workplaceConfidence": "high",
+      "location": "Austin,TX",
+      "url": "https://...",
+      "datePosted": "2025-01-15T10:30:00Z"
+    }
+  ],
+  "totalCount": 10
+}
+```
+
+---
+
+## Endpoint 3: Remote Job Search
+
+**Purpose**: Search for remote-only jobs using natural language. No location validation needed.
+
+### Request Format
+```
+POST https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search/remote
+Content-Type: application/json
+```
+
+### Request Body
+```json
+{
+  "prompt": "natural language job description",
+  "numJobs": 10,
+  "daysSincePosting": 30
+}
+```
+
+### Parameters
+
+- **prompt** (required): Natural language description of the job
+  - Example: "senior software engineer with Python experience"
+  - Must be between 10 and 20,000 characters
+
+- **numJobs** (required): Number of results (1-100)
+
+- **daysSincePosting** (optional): Filter jobs posted within the last N days
+  - Example: `30` for jobs posted in the last 30 days
+  - Omit this parameter to search all jobs regardless of posting date
 
 ### Response Format
 ```json
@@ -161,7 +213,7 @@ Content-Type: application/json
       "description": "Job description...",
       "workplace": "REMOTE",
       "workplaceConfidence": "high",
-      "location": "New York City,NY",
+      "location": null,
       "url": "https://...",
       "datePosted": "2025-01-15T10:30:00Z"
     }
@@ -176,16 +228,15 @@ Content-Type: application/json
 
 ### Workflow 1: Search for Remote Jobs (No Location Validation Needed)
 
-**Step 1: Search directly for remote jobs**
+**Step 1: Search directly for remote jobs using /search/remote endpoint**
 ```bash
-curl -X POST https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search \
+curl -X POST https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search/remote \
   -H "Content-Type: application/json" \
   -H "x-api-key: HHTnWCCgx2uCP7Ia3ZVB80SI6lviPPK0gR7eG8Ne" \
   -d '{
     "prompt": "senior software engineer with Python and AWS experience",
     "numJobs": 10,
-    "includeRemote": true,
-    "filters": []
+    "daysSincePosting": 30
   }'
 ```
 
@@ -212,15 +263,12 @@ curl -X POST https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search \
   -d '{
     "prompt": "data scientist machine learning",
     "numJobs": 20,
-    "includeRemote": false,
-    "filters": [
-      {
-        "includeOnsite": true,
-        "includeHybrid": false,
-        "location": "San Francisco,CA",
-        "miles": 25
-      }
-    ]
+    "city": "San Francisco",
+    "state": "CA",
+    "miles": 15,
+    "includeOnsite": true,
+    "includeHybrid": false,
+    "daysSincePosting": 30
   }'
 ```
 
@@ -265,32 +313,23 @@ curl -X POST https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search \
   -d '{
     "prompt": "frontend developer React TypeScript",
     "numJobs": 15,
-    "includeRemote": false,
-    "filters": [
-      {
-        "includeOnsite": false,
-        "includeHybrid": true,
-        "location": "San Francisco,CA",
-        "miles": 30
-      }
-    ]
+    "city": "San Francisco",
+    "state": "CA",
+    "miles": 20,
+    "includeOnsite": false,
+    "includeHybrid": true
   }'
 ```
 
-### Workflow 4: Search Multiple Locations (Remote OR Multiple Cities)
+### Workflow 4: Search for Hybrid Jobs in Specific Location
 
-**Step 1: Validate all locations**
+**Step 1: Validate the location**
 ```bash
-# Validate location 1
 curl -X GET "https://42r7s00kck.execute-api.us-east-2.amazonaws.com/locations/validate?city=Austin&state=TX" \
-  -H "x-api-key: HHTnWCCgx2uCP7Ia3ZVB80SI6lviPPK0gR7eG8Ne"
-
-# Validate location 2
-curl -X GET "https://42r7s00kck.execute-api.us-east-2.amazonaws.com/locations/validate?city=Seattle&state=WA" \
   -H "x-api-key: HHTnWCCgx2uCP7Ia3ZVB80SI6lviPPK0gR7eG8Ne"
 ```
 
-**Step 2: Search with multiple filters (results will include jobs matching ANY filter)**
+**Step 2: Search for hybrid positions within radius**
 ```bash
 curl -X POST https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search \
   -H "Content-Type: application/json" \
@@ -298,21 +337,12 @@ curl -X POST https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search \
   -d '{
     "prompt": "product manager SaaS startup",
     "numJobs": 25,
-    "includeRemote": true,
-    "filters": [
-      {
-        "includeOnsite": false,
-        "includeHybrid": true,
-        "location": "Austin,TX",
-        "miles": 40
-      },
-      {
-        "includeOnsite": false,
-        "includeHybrid": true,
-        "location": "Seattle,WA",
-        "miles": 35
-      }
-    ]
+    "city": "Austin",
+    "state": "TX",
+    "miles": 15,
+    "includeOnsite": true,
+    "includeHybrid": true,
+    "daysSincePosting": 14
   }'
 ```
 
@@ -342,17 +372,31 @@ curl -X POST https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search \
 }
 ```
 
-**Invalid filter configuration:**
+**Invalid workplace configuration:**
 ```json
 {
-  "message": "Filter #1: At least one of 'includeOnsite' or 'includeHybrid' must be true. Current values: includeOnsite=false, includeHybrid=false"
+  "message": "At least one of 'includeOnsite' or 'includeHybrid' must be true. Current values: includeOnsite=false, includeHybrid=false"
+}
+```
+
+**Missing required parameter (city):**
+```json
+{
+  "message": "City is required (e.g., 'Austin')"
+}
+```
+
+**Missing required parameter (state):**
+```json
+{
+  "message": "State is required (e.g., 'TX')"
 }
 ```
 
 **Invalid location:**
 ```json
 {
-  "message": "Location 'Austinn,TX' not found in database. Please use the /locations/validate endpoint to verify the location exists and get the correct format (e.g., GET /locations/validate?city=Austin&state=TX)"
+  "message": "Location 'Austinn, TX' not found in database. Please use the /locations/validate endpoint to verify the location exists and get the correct format (e.g., GET /locations/validate?city=Austin&state=TX)"
 }
 ```
 
@@ -376,43 +420,61 @@ curl -X POST https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search \
 
 ## Important Notes
 
-1. **Location Format**: Always use the exact format returned by the location validation endpoint. Example: "New York City,NY" not "New York,NY"
+1. **Two Separate Endpoints**:
+   - Use `/search` for location-based searches (on-site and/or hybrid jobs)
+   - Use `/search/remote` for remote-only searches (no location parameters needed)
 
-2. **URL Encoding**: When using GET requests, remember to URL encode spaces and special characters:
+2. **Location Format**: Always use the exact city and state names returned by the location validation endpoint.
+   - Example: City="San Francisco", State="CA" (not "San Fran" or "California")
+
+3. **URL Encoding**: When using GET requests for location validation, remember to URL encode spaces:
    - Space = `%20`
-   - Comma = `%2C`
+   - Example: "San Francisco" becomes "San%20Francisco"
 
-3. **Remote Jobs**: To include remote positions, set `includeRemote: true`. You can combine this with location filters to get both remote jobs AND jobs near specific locations.
+4. **Search Radius Limit**: The /search endpoint has a maximum radius of 20 miles. This is intentionally limited to ensure focused local searches.
 
-4. **Multiple Filters**: You can provide up to 10 location filters. The search uses OR logic - jobs matching ANY workplace condition will be returned (remote OR any location filter).
-
-5. **Workplace Types**: Each location filter can include both on-site and hybrid positions. At least one of `includeOnsite` or `includeHybrid` must be true for each filter.
+5. **Workplace Types**: For the /search endpoint, at least one of `includeOnsite` or `includeHybrid` must be `true`. Set both to `true` to get all non-remote jobs in the area.
 
 6. **Semantic Search**: The API uses AI-powered semantic search with vector embeddings, so results are ranked by semantic relevance to your natural language prompt.
 
 7. **Date Filtering**: Use `daysSincePosting` to only get recent jobs. For example, `daysSincePosting: 7` will only return jobs posted in the last week.
 
-8. **Country Parameter**: Currently only US locations are supported. The country parameter defaults to "US" and can be omitted.
+8. **Country Parameter**: Currently only US locations are supported. The country parameter defaults to "US" and can be omitted from validation requests.
 
 ---
 
 ## Testing Checklist
 
+### Location Validation Tests
 - [ ] Test location validation with exact match
 - [ ] Test location validation with typo (verify suggestions)
 - [ ] Test location validation with URL-encoded spaces
-- [ ] Test remote-only job search (`includeRemote: true`, empty filters)
-- [ ] Test on-site job search with validated location
-- [ ] Test hybrid job search with validated location
-- [ ] Test combined remote + location filters
-- [ ] Test date filtering with `daysSincePosting`
-- [ ] Test multiple location filters (2+ cities)
-- [ ] Test error handling (missing API key)
-- [ ] Test error handling (missing required parameters)
+
+### Remote Job Search Tests (/search/remote)
+- [ ] Test remote-only job search with basic parameters
+- [ ] Test remote search with date filtering (`daysSincePosting`)
+- [ ] Test error handling (missing prompt)
 - [ ] Test error handling (invalid numJobs values)
-- [ ] Test error handling (prompt too short or too long)
-- [ ] Test error handling (filter with both includeOnsite and includeHybrid false)
+
+### Location-Based Job Search Tests (/search)
+- [ ] Test on-site only job search with validated location
+- [ ] Test hybrid only job search with validated location
+- [ ] Test both on-site and hybrid job search
+- [ ] Test date filtering with `daysSincePosting`
+- [ ] Test various radius values (1-20 miles)
+- [ ] Test error handling (missing city)
+- [ ] Test error handling (missing state)
+- [ ] Test error handling (missing miles)
+- [ ] Test error handling (both includeOnsite and includeHybrid false)
 - [ ] Test error handling (invalid location not in database)
+- [ ] Test error handling (miles > 20 or miles < 1)
+
+### General API Tests
+- [ ] Test error handling (missing API key)
+- [ ] Test error handling (invalid API key)
+- [ ] Test error handling (prompt too short - less than 10 chars)
+- [ ] Test error handling (prompt too long - more than 20,000 chars)
+- [ ] Test error handling (numJobs < 1 or > 100)
 
 ---
 
