@@ -10,6 +10,9 @@ public class SearchRequest
     [JsonPropertyName("numJobs")]
     public int NumJobs { get; set; }
 
+    [JsonPropertyName("page")]
+    public int Page { get; set; } = 1;
+
     [JsonPropertyName("includeOnsite")]
     public bool IncludeOnsite { get; set; }
 

@@ -34,8 +34,14 @@ namespace JobApi.TestGui.Controls
             this.lblSearchCity = new System.Windows.Forms.Label();
             this.btnSearch = new System.Windows.Forms.Button();
             this.btnClear = new System.Windows.Forms.Button();
+            this.lblPage = new System.Windows.Forms.Label();
+            this.numPage = new System.Windows.Forms.NumericUpDown();
+            this.btnPrevPage = new System.Windows.Forms.Button();
+            this.btnNextPage = new System.Windows.Forms.Button();
+            this.lblPageInfo = new System.Windows.Forms.Label();
             this.txtResults = new System.Windows.Forms.TextBox();
             this.lblResults = new System.Windows.Forms.Label();
+            ((System.ComponentModel.ISupportInitialize)(this.numPage)).BeginInit();
             this.grpFilter.SuspendLayout();
             this.SuspendLayout();
             //
@@ -226,6 +232,54 @@ namespace JobApi.TestGui.Controls
             this.btnClear.UseVisualStyleBackColor = true;
             this.btnClear.Click += new System.EventHandler(this.btnClear_Click);
             //
+            // lblPage
+            //
+            this.lblPage.AutoSize = true;
+            this.lblPage.Location = new System.Drawing.Point(290, 287);
+            this.lblPage.Name = "lblPage";
+            this.lblPage.Size = new System.Drawing.Size(36, 15);
+            this.lblPage.TabIndex = 10;
+            this.lblPage.Text = "Page:";
+            //
+            // numPage
+            //
+            this.numPage.Location = new System.Drawing.Point(332, 285);
+            this.numPage.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
+            this.numPage.Name = "numPage";
+            this.numPage.Size = new System.Drawing.Size(60, 23);
+            this.numPage.TabIndex = 11;
+            this.numPage.Value = new decimal(new int[] { 1, 0, 0, 0 });
+            this.numPage.ValueChanged += new System.EventHandler(this.numPage_ValueChanged);
+            //
+            // btnPrevPage
+            //
+            this.btnPrevPage.Location = new System.Drawing.Point(398, 283);
+            this.btnPrevPage.Name = "btnPrevPage";
+            this.btnPrevPage.Size = new System.Drawing.Size(80, 27);
+            this.btnPrevPage.TabIndex = 12;
+            this.btnPrevPage.Text = "< Previous";
+            this.btnPrevPage.UseVisualStyleBackColor = true;
+            this.btnPrevPage.Click += new System.EventHandler(this.btnPrevPage_Click);
+            //
+            // btnNextPage
+            //
+            this.btnNextPage.Location = new System.Drawing.Point(484, 283);
+            this.btnNextPage.Name = "btnNextPage";
+            this.btnNextPage.Size = new System.Drawing.Size(80, 27);
+            this.btnNextPage.TabIndex = 13;
+            this.btnNextPage.Text = "Next >";
+            this.btnNextPage.UseVisualStyleBackColor = true;
+            this.btnNextPage.Click += new System.EventHandler(this.btnNextPage_Click);
+            //
+            // lblPageInfo
+            //
+            this.lblPageInfo.AutoSize = true;
+            this.lblPageInfo.ForeColor = System.Drawing.Color.Gray;
+            this.lblPageInfo.Location = new System.Drawing.Point(570, 287);
+            this.lblPageInfo.Name = "lblPageInfo";
+            this.lblPageInfo.Size = new System.Drawing.Size(0, 15);
+            this.lblPageInfo.TabIndex = 14;
+            //
             // txtResults
             //
             this.txtResults.Font = new System.Drawing.Font("Consolas", 9F);
@@ -251,6 +305,11 @@ namespace JobApi.TestGui.Controls
             //
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.Controls.Add(this.lblPageInfo);
+            this.Controls.Add(this.btnNextPage);
+            this.Controls.Add(this.btnPrevPage);
+            this.Controls.Add(this.numPage);
+            this.Controls.Add(this.lblPage);
             this.Controls.Add(this.lblResults);
             this.Controls.Add(this.txtResults);
             this.Controls.Add(this.btnClear);
@@ -266,6 +325,7 @@ namespace JobApi.TestGui.Controls
             this.Controls.Add(this.lblPrompt);
             this.Name = "SearchControl";
             this.Size = new System.Drawing.Size(792, 652);
+            ((System.ComponentModel.ISupportInitialize)(this.numPage)).EndInit();
             this.grpFilter.ResumeLayout(false);
             this.grpFilter.PerformLayout();
             this.ResumeLayout(false);
@@ -291,6 +351,11 @@ namespace JobApi.TestGui.Controls
         private System.Windows.Forms.Label lblSearchCity;
         private System.Windows.Forms.Button btnSearch;
         private System.Windows.Forms.Button btnClear;
+        private System.Windows.Forms.Label lblPage;
+        private System.Windows.Forms.NumericUpDown numPage;
+        private System.Windows.Forms.Button btnPrevPage;
+        private System.Windows.Forms.Button btnNextPage;
+        private System.Windows.Forms.Label lblPageInfo;
         private System.Windows.Forms.TextBox txtResults;
         private System.Windows.Forms.Label lblResults;
     }

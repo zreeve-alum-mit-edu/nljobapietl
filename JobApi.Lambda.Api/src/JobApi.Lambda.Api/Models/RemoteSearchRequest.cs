@@ -10,6 +10,9 @@ public class RemoteSearchRequest
     [JsonPropertyName("numJobs")]
     public int NumJobs { get; set; }
 
+    [JsonPropertyName("page")]
+    public int Page { get; set; } = 1;
+
     [JsonPropertyName("daysSincePosting")]
     public int? DaysSincePosting { get; set; }
 }

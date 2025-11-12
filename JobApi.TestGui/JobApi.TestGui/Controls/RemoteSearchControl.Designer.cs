@@ -25,8 +25,14 @@ namespace JobApi.TestGui.Controls
             this.cmbRemoteVersion = new System.Windows.Forms.ComboBox();
             this.btnSearchRemote = new System.Windows.Forms.Button();
             this.btnClearRemote = new System.Windows.Forms.Button();
+            this.lblRemotePage = new System.Windows.Forms.Label();
+            this.numRemotePage = new System.Windows.Forms.NumericUpDown();
+            this.btnRemotePrevPage = new System.Windows.Forms.Button();
+            this.btnRemoteNextPage = new System.Windows.Forms.Button();
+            this.lblRemotePageInfo = new System.Windows.Forms.Label();
             this.txtRemoteResults = new System.Windows.Forms.TextBox();
             this.lblRemoteResults = new System.Windows.Forms.Label();
+            ((System.ComponentModel.ISupportInitialize)(this.numRemotePage)).BeginInit();
             this.SuspendLayout();
             //
             // lblRemotePrompt
@@ -124,6 +130,54 @@ namespace JobApi.TestGui.Controls
             this.btnClearRemote.UseVisualStyleBackColor = true;
             this.btnClearRemote.Click += new System.EventHandler(this.btnClearRemote_Click);
             //
+            // lblRemotePage
+            //
+            this.lblRemotePage.AutoSize = true;
+            this.lblRemotePage.Location = new System.Drawing.Point(290, 171);
+            this.lblRemotePage.Name = "lblRemotePage";
+            this.lblRemotePage.Size = new System.Drawing.Size(36, 15);
+            this.lblRemotePage.TabIndex = 10;
+            this.lblRemotePage.Text = "Page:";
+            //
+            // numRemotePage
+            //
+            this.numRemotePage.Location = new System.Drawing.Point(332, 169);
+            this.numRemotePage.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
+            this.numRemotePage.Name = "numRemotePage";
+            this.numRemotePage.Size = new System.Drawing.Size(60, 23);
+            this.numRemotePage.TabIndex = 11;
+            this.numRemotePage.Value = new decimal(new int[] { 1, 0, 0, 0 });
+            this.numRemotePage.ValueChanged += new System.EventHandler(this.numRemotePage_ValueChanged);
+            //
+            // btnRemotePrevPage
+            //
+            this.btnRemotePrevPage.Location = new System.Drawing.Point(398, 167);
+            this.btnRemotePrevPage.Name = "btnRemotePrevPage";
+            this.btnRemotePrevPage.Size = new System.Drawing.Size(80, 27);
+            this.btnRemotePrevPage.TabIndex = 12;
+            this.btnRemotePrevPage.Text = "< Previous";
+            this.btnRemotePrevPage.UseVisualStyleBackColor = true;
+            this.btnRemotePrevPage.Click += new System.EventHandler(this.btnRemotePrevPage_Click);
+            //
+            // btnRemoteNextPage
+            //
+            this.btnRemoteNextPage.Location = new System.Drawing.Point(484, 167);
+            this.btnRemoteNextPage.Name = "btnRemoteNextPage";
+            this.btnRemoteNextPage.Size = new System.Drawing.Size(80, 27);
+            this.btnRemoteNextPage.TabIndex = 13;
+            this.btnRemoteNextPage.Text = "Next >";
+            this.btnRemoteNextPage.UseVisualStyleBackColor = true;
+            this.btnRemoteNextPage.Click += new System.EventHandler(this.btnRemoteNextPage_Click);
+            //
+            // lblRemotePageInfo
+            //
+            this.lblRemotePageInfo.AutoSize = true;
+            this.lblRemotePageInfo.ForeColor = System.Drawing.Color.Gray;
+            this.lblRemotePageInfo.Location = new System.Drawing.Point(570, 171);
+            this.lblRemotePageInfo.Name = "lblRemotePageInfo";
+            this.lblRemotePageInfo.Size = new System.Drawing.Size(0, 15);
+            this.lblRemotePageInfo.TabIndex = 14;
+            //
             // txtRemoteResults
             //
             this.txtRemoteResults.Font = new System.Drawing.Font("Consolas", 9F);
@@ -149,6 +203,11 @@ namespace JobApi.TestGui.Controls
             //
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.Controls.Add(this.lblRemotePageInfo);
+            this.Controls.Add(this.btnRemoteNextPage);
+            this.Controls.Add(this.btnRemotePrevPage);
+            this.Controls.Add(this.numRemotePage);
+            this.Controls.Add(this.lblRemotePage);
             this.Controls.Add(this.lblRemoteResults);
             this.Controls.Add(this.txtRemoteResults);
             this.Controls.Add(this.btnClearRemote);
@@ -163,6 +222,7 @@ namespace JobApi.TestGui.Controls
             this.Controls.Add(this.lblRemotePrompt);
             this.Name = "RemoteSearchControl";
             this.Size = new System.Drawing.Size(792, 652);
+            ((System.ComponentModel.ISupportInitialize)(this.numRemotePage)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
         }
@@ -177,6 +237,11 @@ namespace JobApi.TestGui.Controls
         private System.Windows.Forms.ComboBox cmbRemoteVersion;
         private System.Windows.Forms.Button btnSearchRemote;
         private System.Windows.Forms.Button btnClearRemote;
+        private System.Windows.Forms.Label lblRemotePage;
+        private System.Windows.Forms.NumericUpDown numRemotePage;
+        private System.Windows.Forms.Button btnRemotePrevPage;
+        private System.Windows.Forms.Button btnRemoteNextPage;
+        private System.Windows.Forms.Label lblRemotePageInfo;
         private System.Windows.Forms.TextBox txtRemoteResults;
         private System.Windows.Forms.Label lblRemoteResults;
     }

@@ -8,6 +8,9 @@ public partial class RemoteSearchControl : UserControl
     private const string RemoteSearchApiUrl = "https://42r7s00kck.execute-api.us-east-2.amazonaws.com/search/remote";
     private const string ApiKey = "HHTnWCCgx2uCP7Ia3ZVB80SI6lviPPK0gR7eG8Ne";
 
+    private int _totalPages = 0;
+    private int _totalCount = 0;
+
     public RemoteSearchControl()
     {
         InitializeComponent();
@@ -33,7 +36,8 @@ public partial class RemoteSearchControl : UserControl
             {
                 prompt = txtRemotePrompt.Text,
                 numJobs = numJobs,
-                daysSincePosting = daysSincePosting
+                daysSincePosting = daysSincePosting,
+                page = (int)numRemotePage.Value
             };
 
             // Send request
@@ -54,6 +58,48 @@ public partial class RemoteSearchControl : UserControl
 
             var response = await client.PostAsync(RemoteSearchApiUrl, content);
             var responseBody = await response.Content.ReadAsStringAsync();
+
+            // Parse pagination metadata
+            if (response.IsSuccessStatusCode)
+            {
+                try
+                {
+                    var doc = JsonDocument.Parse(responseBody);
+                    if (doc.RootElement.TryGetProperty("totalPages", out var totalPagesElement))
+                    {
+                        _totalPages = totalPagesElement.GetInt32();
+                    }
+                    if (doc.RootElement.TryGetProperty("totalCount", out var totalCountElement))
+                    {
+                        _totalCount = totalCountElement.GetInt32();
+                    }
+                    if (doc.RootElement.TryGetProperty("page", out var pageElement))
+                    {
+                        var currentPage = pageElement.GetInt32();
+                        lblRemotePageInfo.Text = $"Page {currentPage} of {_totalPages} - {_totalCount} total results";
+                    }
+
+                    // Update button states
+                    bool hasNextPage = false;
+                    bool hasPreviousPage = false;
+                    if (doc.RootElement.TryGetProperty("hasNextPage", out var hasNextElement))
+                    {
+                        hasNextPage = hasNextElement.GetBoolean();
+                    }
+                    if (doc.RootElement.TryGetProperty("hasPreviousPage", out var hasPrevElement))
+                    {
+                        hasPreviousPage = hasPrevElement.GetBoolean();
+                    }
+
+                    btnRemoteNextPage.Enabled = hasNextPage;
+                    btnRemotePrevPage.Enabled = hasPreviousPage;
+                }
+                catch
+                {
+                    // If parsing fails, just show the response
+                    lblRemotePageInfo.Text = "";
+                }
+            }
 
             // Format response
             var formattedResponse = FormatJsonResponse(responseBody);
@@ -89,5 +135,34 @@ public partial class RemoteSearchControl : UserControl
         txtRemoteNumJobs.Text = "10";
         txtRemoteDays.Clear();
         txtRemoteResults.Clear();
+        numRemotePage.Value = 1;
+        lblRemotePageInfo.Text = "";
+        btnRemotePrevPage.Enabled = false;
+        btnRemoteNextPage.Enabled = false;
+    }
+
+    private void numRemotePage_ValueChanged(object sender, EventArgs e)
+    {
+        // Trigger search with new page number
+        if (_totalPages > 0 && numRemotePage.Value <= _totalPages)
+        {
+            btnSearchRemote_Click(sender, e);
+        }
+    }
+
+    private void btnRemotePrevPage_Click(object sender, EventArgs e)
+    {
+        if (numRemotePage.Value > 1)
+        {
+            numRemotePage.Value--;
+        }
+    }
+
+    private void btnRemoteNextPage_Click(object sender, EventArgs e)
+    {
+        if (numRemotePage.Value < _totalPages)
+        {
+            numRemotePage.Value++;
+        }
     }
 }

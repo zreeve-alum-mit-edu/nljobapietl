@@ -82,10 +82,17 @@ public class SearchHandlerV2
 
             context.Logger.LogInformation($"[V2] Search completed: found {jobs.Count} jobs");
 
+            var totalPages = filteredCount > 0 ? (int)Math.Ceiling((double)filteredCount / request.NumJobs) : 0;
+
             var response = new SearchResponse
             {
                 Jobs = jobs,
-                TotalCount = jobs.Count
+                TotalCount = filteredCount,
+                Page = request.Page,
+                PageSize = request.NumJobs,
+                TotalPages = totalPages,
+                HasNextPage = request.Page < totalPages,
+                HasPreviousPage = request.Page > 1
             };
 
             // Log audit entry
@@ -333,9 +340,11 @@ public class SearchHandlerV2
             WHERE e.embedding IS NOT NULL
             GROUP BY j.id, j.job_title, j.company_name, j.job_description, j.generated_workplace, j.generated_workplace_confidence, j.date_posted, e.embedding
             ORDER BY similarity_score, j.id
-            LIMIT @limit";
+            OFFSET @offset LIMIT @limit";
 
-        context.Logger.LogInformation($"Executing SQL query with params: embedding(1536d), lon={lon}, lat={lat}, distance={distanceMeters}m, limit={request.NumJobs}, centroids={centroidIds.Count}");
+        var offset = (request.Page - 1) * request.NumJobs;
+
+        context.Logger.LogInformation($"Executing SQL query with params: embedding(1536d), lon={lon}, lat={lat}, distance={distanceMeters}m, limit={request.NumJobs}, offset={offset}, page={request.Page}, centroids={centroidIds.Count}");
 
         await using var cmd = new NpgsqlCommand(sql, connection);
         cmd.Parameters.AddWithValue("centroidIds", centroidIds.ToArray());
@@ -343,6 +352,7 @@ public class SearchHandlerV2
         cmd.Parameters.AddWithValue("lon", lon);
         cmd.Parameters.AddWithValue("lat", lat);
         cmd.Parameters.AddWithValue("distance", distanceMeters);
+        cmd.Parameters.AddWithValue("offset", offset);
         cmd.Parameters.AddWithValue("limit", request.NumJobs);
 
         var jobs = new List<JobResult>();

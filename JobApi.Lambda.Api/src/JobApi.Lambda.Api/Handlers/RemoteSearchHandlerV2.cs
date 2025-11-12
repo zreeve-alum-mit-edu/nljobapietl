@@ -71,17 +71,24 @@ public class RemoteSearchHandlerV2
 
             // Step 4: Execute vector similarity search query for remote jobs
             var databaseStopwatch = Stopwatch.StartNew();
-            var (jobs, filteredCount) = await SearchRemoteJobs(connection, embedding, request.NumJobs, request.DaysSincePosting, context);
+            var (jobs, filteredCount) = await SearchRemoteJobs(connection, embedding, request.NumJobs, request.Page, request.DaysSincePosting, context);
             databaseStopwatch.Stop();
             databaseDurationMs = (int)databaseStopwatch.ElapsedMilliseconds;
             numJobsFiltered = filteredCount;
 
             context.Logger.LogInformation($"[V2] Remote search completed: found {jobs.Count} jobs");
 
+            var totalPages = filteredCount > 0 ? (int)Math.Ceiling((double)filteredCount / request.NumJobs) : 0;
+
             var response = new SearchResponse
             {
                 Jobs = jobs,
-                TotalCount = jobs.Count
+                TotalCount = filteredCount,
+                Page = request.Page,
+                PageSize = request.NumJobs,
+                TotalPages = totalPages,
+                HasNextPage = request.Page < totalPages,
+                HasPreviousPage = request.Page > 1
             };
 
             // Log audit entry
@@ -229,10 +236,11 @@ public class RemoteSearchHandlerV2
         NpgsqlConnection connection,
         float[] embedding,
         int limit,
+        int page,
         int? daysSincePosting,
         ILambdaContext context)
     {
-        context.Logger.LogInformation($"Executing remote vector search query with limit={limit}, daysSince={daysSincePosting}");
+        context.Logger.LogInformation($"Executing remote vector search query with limit={limit}, page={page}, daysSince={daysSincePosting}");
 
         // Build date filter if specified
         var dateFilter = daysSincePosting.HasValue
@@ -254,7 +262,7 @@ public class RemoteSearchHandlerV2
                     AND j.is_valid = true
                     {dateFilter}
                 ORDER BY similarity_score ASC
-                LIMIT {limit}
+                OFFSET @offset LIMIT @limit
             ),
             total_count AS (
                 SELECT COUNT(*) as total
@@ -297,10 +305,14 @@ public class RemoteSearchHandlerV2
             GROUP BY j.id, j.job_title, j.company_name, j.job_description, j.generated_workplace, j.generated_workplace_confidence, j.date_posted, t.similarity_score
             ORDER BY t.similarity_score ASC";
 
-        context.Logger.LogInformation($"Executing SQL query with filtered count");
+        var offset = (page - 1) * limit;
+
+        context.Logger.LogInformation($"Executing SQL query with filtered count, offset={offset}, limit={limit}");
 
         await using var cmd = new NpgsqlCommand(sql, connection);
         cmd.Parameters.AddWithValue("embedding", embedding);
+        cmd.Parameters.AddWithValue("offset", offset);
+        cmd.Parameters.AddWithValue("limit", limit);
 
         var jobs = new List<JobResult>();
         var filteredCount = 0;
