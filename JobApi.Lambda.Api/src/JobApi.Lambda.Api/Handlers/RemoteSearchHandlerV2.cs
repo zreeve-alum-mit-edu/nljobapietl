@@ -242,35 +242,12 @@ public class RemoteSearchHandlerV2
         // Build complete SQL query - filter on job_embeddings.generated_workplace for index usage
         // Include filtered count using window function
         var sql = $@"
-            WITH filtered_jobs AS (
+            WITH top_jobs AS (
                 SELECT
-                    j.id,
-                    j.job_title,
-                    j.company_name,
-                    j.job_description,
-                    j.generated_workplace,
-                    j.generated_workplace_confidence,
-                    first_loc.generated_city,
-                    first_loc.generated_state,
-                    first_url.url as job_url,
-                    j.date_posted,
+                    je.job_id,
                     (je.embedding <=> @embedding::vector) as similarity_score
                 FROM job_embeddings je
                 INNER JOIN jobs j ON je.job_id = j.id
-                LEFT JOIN LATERAL (
-                    SELECT generated_city, generated_state, id
-                    FROM job_locations
-                    WHERE job_id = j.id
-                    ORDER BY id
-                    LIMIT 1
-                ) first_loc ON true
-                LEFT JOIN LATERAL (
-                    SELECT url
-                    FROM job_location_urls
-                    WHERE job_location_id = first_loc.id
-                    ORDER BY id
-                    LIMIT 1
-                ) first_url ON true
                 WHERE je.generated_workplace = 'REMOTE'
                     AND je.embedding IS NOT NULL
                     AND j.status = 'embedded'
@@ -290,9 +267,35 @@ public class RemoteSearchHandlerV2
                     {dateFilter}
             )
             SELECT
-                f.*,
-                (SELECT total FROM total_count) as filtered_count
-            FROM filtered_jobs f";
+                j.id,
+                j.job_title,
+                j.company_name,
+                j.job_description,
+                j.generated_workplace,
+                j.generated_workplace_confidence,
+                j.date_posted,
+                t.similarity_score,
+                (SELECT total FROM total_count) as filtered_count,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'city', jl.generated_city,
+                            'state', jl.generated_state,
+                            'country', jl.generated_country,
+                            'urls', (
+                                SELECT COALESCE(json_agg(jlu.url), '[]'::json)
+                                FROM job_location_urls jlu
+                                WHERE jlu.job_location_id = jl.id
+                            )
+                        )
+                    ) FILTER (WHERE jl.id IS NOT NULL),
+                    '[]'::json
+                ) as locations
+            FROM top_jobs t
+            INNER JOIN jobs j ON j.id = t.job_id
+            LEFT JOIN job_locations jl ON jl.job_id = j.id
+            GROUP BY j.id, j.job_title, j.company_name, j.job_description, j.generated_workplace, j.generated_workplace_confidence, j.date_posted, t.similarity_score
+            ORDER BY t.similarity_score ASC";
 
         context.Logger.LogInformation($"Executing SQL query with filtered count");
 
@@ -306,12 +309,9 @@ public class RemoteSearchHandlerV2
 
         while (await reader.ReadAsync())
         {
-            // Handle nullable location fields
-            var city = reader.IsDBNull(6) ? "" : reader.GetString(6);
-            var state = reader.IsDBNull(7) ? "" : reader.GetString(7);
-            var location = string.IsNullOrEmpty(city) && string.IsNullOrEmpty(state)
-                ? ""
-                : $"{city},{state}";
+            // Parse locations JSON array
+            var locationsJson = reader.GetString(9);
+            var locations = System.Text.Json.JsonSerializer.Deserialize<List<JobLocation>>(locationsJson) ?? new List<JobLocation>();
 
             var job = new JobResult
             {
@@ -321,15 +321,14 @@ public class RemoteSearchHandlerV2
                 Description = reader.GetString(3),
                 Workplace = reader.GetString(4),
                 WorkplaceConfidence = reader.IsDBNull(5) ? null : reader.GetString(5),
-                Location = location,
-                Url = reader.IsDBNull(8) ? null : reader.GetString(8),
-                DatePosted = reader.IsDBNull(9) ? null : reader.GetDateTime(9)
+                DatePosted = reader.IsDBNull(6) ? null : reader.GetDateTime(6),
+                Locations = locations
             };
 
             // Get filtered count from first row
             if (jobs.Count == 0)
             {
-                filteredCount = reader.IsDBNull(11) ? 0 : Convert.ToInt32(reader.GetInt64(11));
+                filteredCount = reader.IsDBNull(8) ? 0 : Convert.ToInt32(reader.GetInt64(8));
             }
 
             jobs.Add(job);

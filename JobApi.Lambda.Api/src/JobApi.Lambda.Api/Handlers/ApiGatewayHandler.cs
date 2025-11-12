@@ -20,6 +20,7 @@ public class ApiGatewayHandler
     // Shared handlers (no versioning)
     private readonly LocationHandler _locationHandler;
     private readonly HashSet<string> _apiKeys;
+    private readonly string? _rapidApiProxySecret;
     private readonly AuditLogger _auditLogger;
     private readonly string _connectionString;
 
@@ -39,6 +40,9 @@ public class ApiGatewayHandler
         // Support multiple API keys (comma-separated in API_KEYS environment variable)
         var apiKeysEnv = Environment.GetEnvironmentVariable("API_KEYS") ?? "HHTnWCCgx2uCP7Ia3ZVB80SI6lviPPK0gR7eG8Ne";
         _apiKeys = new HashSet<string>(apiKeysEnv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+        // RapidAPI proxy secret (optional)
+        _rapidApiProxySecret = Environment.GetEnvironmentVariable("RAPIDAPI_PROXY_SECRET");
 
         // Initialize audit logger
         var host = Environment.GetEnvironmentVariable("DB_HOST") ?? throw new Exception("DB_HOST not set");
@@ -62,13 +66,6 @@ public class ApiGatewayHandler
 
         try
         {
-            // Validate API key
-            if (!ValidateApiKey(request))
-            {
-                context.Logger.LogWarning("Invalid or missing API key");
-                return CreateResponse(403, new { message = "Forbidden: Invalid or missing API key" });
-            }
-
             // Extract route from API Gateway v2 format (RouteKey) or v1 format (Path + HttpMethod)
             string method = "";
             string path = "";
@@ -91,6 +88,26 @@ public class ApiGatewayHandler
             }
 
             context.Logger.LogInformation($"Routing: {method} {path}");
+
+            // Handle OPTIONS preflight requests (CORS)
+            if (method == "OPTIONS")
+            {
+                context.Logger.LogInformation("Handling OPTIONS preflight request");
+                return CreateResponse(200, new { message = "CORS preflight" });
+            }
+
+            // Health check endpoint - no API key required
+            if (path.EndsWith("/health") && method == "GET")
+            {
+                return await HandleHealthRequest(context);
+            }
+
+            // Validate API key for all other endpoints
+            if (!ValidateApiKey(request))
+            {
+                context.Logger.LogWarning("Invalid or missing API key");
+                return CreateResponse(403, new { message = "Forbidden: Invalid or missing API key" });
+            }
 
             if (path.EndsWith("/search") && method == "POST")
             {
@@ -119,18 +136,36 @@ public class ApiGatewayHandler
     }
 
     /// <summary>
-    /// Validates the x-api-key header against the list of valid API keys
+    /// Validates the x-api-key header OR X-RapidAPI-Proxy-Secret header
+    /// Accepts either direct API key or RapidAPI proxy secret
     /// </summary>
     private bool ValidateApiKey(APIGatewayProxyRequest request)
     {
         var headers = request.Headers ?? new Dictionary<string, string>();
 
-        if (!headers.TryGetValue("x-api-key", out var providedKey))
+        // Check for RapidAPI proxy secret first (case-insensitive) - only if configured
+        if (!string.IsNullOrWhiteSpace(_rapidApiProxySecret))
         {
-            return false;
+            var rapidApiSecretKey = headers.Keys.FirstOrDefault(k => k.Equals("X-RapidAPI-Proxy-Secret", StringComparison.OrdinalIgnoreCase));
+            if (rapidApiSecretKey != null)
+            {
+                var rapidApiSecret = headers[rapidApiSecretKey];
+                if (rapidApiSecret == _rapidApiProxySecret)
+                {
+                    return true;
+                }
+            }
         }
 
-        return _apiKeys.Contains(providedKey);
+        // Fall back to checking x-api-key (case-insensitive)
+        var apiKeyHeaderKey = headers.Keys.FirstOrDefault(k => k.Equals("x-api-key", StringComparison.OrdinalIgnoreCase));
+        if (apiKeyHeaderKey != null)
+        {
+            var providedKey = headers[apiKeyHeaderKey];
+            return _apiKeys.Contains(providedKey);
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -356,6 +391,56 @@ public class ApiGatewayHandler
         return CreateResponse(200, response);
     }
 
+    private async Task<APIGatewayProxyResponse> HandleHealthRequest(ILambdaContext context)
+    {
+        var startTime = DateTime.UtcNow;
+        var healthStatus = new
+        {
+            status = "healthy",
+            timestamp = DateTime.UtcNow,
+            service = "NLJobSearch API",
+            version = "2.0"
+        };
+
+        try
+        {
+            // Quick database connectivity check
+            await using var connection = new Npgsql.NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            await using var cmd = new Npgsql.NpgsqlCommand("SELECT 1", connection);
+            await cmd.ExecuteScalarAsync();
+
+            var elapsed = DateTime.UtcNow - startTime;
+
+            context.Logger.LogInformation($"Health check passed - DB responsive in {elapsed.TotalMilliseconds}ms");
+
+            return CreateResponse(200, new
+            {
+                status = "healthy",
+                timestamp = DateTime.UtcNow,
+                service = "NLJobSearch API",
+                version = "2.0",
+                database = "connected",
+                responseTime = $"{elapsed.TotalMilliseconds}ms"
+            });
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"Health check failed: {ex.Message}");
+
+            return CreateResponse(503, new
+            {
+                status = "unhealthy",
+                timestamp = DateTime.UtcNow,
+                service = "NLJobSearch API",
+                version = "2.0",
+                database = "disconnected",
+                error = ex.Message
+            });
+        }
+    }
+
     /// <summary>
     /// Validates that a location exists in the geolocations database
     /// Returns true if location exists, false otherwise
@@ -403,7 +488,10 @@ public class ApiGatewayHandler
             Headers = new Dictionary<string, string>
             {
                 { "Content-Type", "application/json" },
-                { "Access-Control-Allow-Origin", "*" }
+                { "Access-Control-Allow-Origin", "*" },
+                { "Access-Control-Allow-Methods", "GET, POST, OPTIONS" },
+                { "Access-Control-Allow-Headers", "Content-Type, x-api-key, x-api-version, X-RapidAPI-Key, X-RapidAPI-Host" },
+                { "Access-Control-Max-Age", "86400" }
             }
         };
     }

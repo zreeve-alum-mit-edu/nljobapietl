@@ -31,12 +31,24 @@ public class JobResult
     [JsonPropertyName("workplaceConfidence")]
     public string? WorkplaceConfidence { get; set; }
 
-    [JsonPropertyName("location")]
-    public string Location { get; set; } = string.Empty;
-
-    [JsonPropertyName("url")]
-    public string Url { get; set; } = string.Empty;
+    [JsonPropertyName("locations")]
+    public List<JobLocation> Locations { get; set; } = new();
 
     [JsonPropertyName("datePosted")]
     public DateTime? DatePosted { get; set; }
+}
+
+public class JobLocation
+{
+    [JsonPropertyName("city")]
+    public string City { get; set; } = string.Empty;
+
+    [JsonPropertyName("state")]
+    public string State { get; set; } = string.Empty;
+
+    [JsonPropertyName("country")]
+    public string Country { get; set; } = string.Empty;
+
+    [JsonPropertyName("urls")]
+    public List<string> Urls { get; set; } = new();
 }

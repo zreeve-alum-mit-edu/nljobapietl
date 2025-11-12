@@ -1,0 +1,648 @@
+openapi: 3.0.3
+info:
+  title: NL Job Search API
+  description: |
+    Natural language job search API powered by vector embeddings and semantic search.
+
+    ## Features
+    - **Location-Based Search**: Find jobs within a radius of any US city
+    - **Remote Job Search**: Search remote-only positions using fast HNSW vector indexing
+    - **Natural Language Queries**: Use conversational prompts like "senior software engineer with Python experience"
+    - **Semantic Matching**: Vector embeddings ensure relevant results beyond simple keyword matching
+
+    ## Performance
+    - Remote searches: ~100-200ms (HNSW index)
+    - Location searches: ~350-500ms (PostGIS + vector similarity)
+    - Database: PostgreSQL 17 with pgvector extension
+
+    ## Base URL
+    `https://42r7s00kck.execute-api.us-east-2.amazonaws.com`
+  version: 2.0.0
+  contact:
+    name: API Support
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://42r7s00kck.execute-api.us-east-2.amazonaws.com
+    description: Production API
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Health Check
+      description: |
+        Check API and database health status. This endpoint does not require authentication
+        and is designed for use by load balancers, monitoring systems, and uptime checks.
+      operationId: getHealth
+      tags:
+        - System
+      security: []  # No authentication required
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                healthy:
+                  value:
+                    status: "healthy"
+                    timestamp: "2025-11-10T04:42:13.741Z"
+                    service: "NLJobSearch API"
+                    version: "2.0"
+                    database: "connected"
+                    responseTime: "756.5ms"
+        '503':
+          description: Service is unhealthy (database connection failed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                unhealthy:
+                  value:
+                    status: "unhealthy"
+                    timestamp: "2025-11-10T04:42:13.741Z"
+                    service: "NLJobSearch API"
+                    version: "2.0"
+                    database: "disconnected"
+                    error: "Connection timeout"
+
+  /search:
+    post:
+      summary: Location-Based Job Search
+      description: |
+        Search for jobs within a specified radius of a US city using natural language prompts.
+
+        ## How It Works
+        1. Filters jobs by location using PostGIS spatial queries
+        2. Generates vector embedding from your prompt using OpenAI
+        3. Orders filtered jobs by semantic similarity to your query
+        4. Returns top N most relevant jobs
+
+        ## Performance
+        - ~350-500ms average response time
+        - Searches 13,000+ jobs per major metro area (20 mile radius)
+        - 96% cache hit ratio for embeddings
+
+        ## API Version
+        Use `x-api-version: 2` header for V2 (recommended). Defaults to V2 if not specified.
+        V1 uses centroid-based location filtering (deprecated).
+      operationId: searchJobs
+      tags:
+        - Search
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+            examples:
+              software_engineer:
+                summary: Software Engineer Search
+                value:
+                  prompt: "senior software engineer with Python and AWS experience"
+                  numJobs: 10
+                  city: "Austin"
+                  state: "TX"
+                  miles: 20
+                  includeOnsite: true
+                  includeHybrid: true
+                  daysSincePosting: 30
+              nurse:
+                summary: Nursing Search
+                value:
+                  prompt: "registered nurse wanting to work with kids"
+                  numJobs: 20
+                  city: "Chicago"
+                  state: "IL"
+                  miles: 15
+                  includeOnsite: true
+                  includeHybrid: false
+      responses:
+        '200':
+          description: Successful search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_prompt:
+                  value:
+                    message: "Prompt is required and cannot be empty. Provide a natural language job description (e.g., 'senior software engineer with Python experience')"
+                invalid_location:
+                  value:
+                    message: "Location 'Springfield, XX' not found in database. Please use the /locations/validate endpoint to verify the location exists and get the correct format (e.g., GET /locations/validate?city=Austin&state=TX)"
+                invalid_miles:
+                  value:
+                    message: "Miles cannot exceed 20 (received: 50)"
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: OpenAI service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                openai_error:
+                  value:
+                    message: "OpenAI embedding service is currently unavailable. Please try again later."
+
+  /search/remote:
+    post:
+      summary: Remote-Only Job Search
+      description: |
+        Search for remote-only jobs using natural language prompts.
+
+        ## How It Works
+        1. Generates vector embedding from your prompt using OpenAI
+        2. Uses HNSW (Hierarchical Navigable Small World) index for fast nearest neighbor search
+        3. Searches only jobs marked as "REMOTE" workplace type
+        4. Returns top N most semantically similar jobs
+
+        ## Performance
+        - ~100-200ms average response time
+        - HNSW index enables sub-second search across 500,000+ remote jobs
+        - No location filtering overhead
+
+        ## Use Cases
+        - Remote job boards
+        - Distributed teams looking for talent
+        - Location-agnostic job searches
+
+        ## API Version
+        Use `x-api-version: 2` header for V2 (recommended). Defaults to V2 if not specified.
+      operationId: searchRemoteJobs
+      tags:
+        - Search
+      parameters:
+        - $ref: '#/components/parameters/ApiVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoteSearchRequest'
+            examples:
+              data_scientist:
+                summary: Data Scientist Search
+                value:
+                  prompt: "data scientist specializing in machine learning and NLP"
+                  numJobs: 15
+                  daysSincePosting: 14
+              backend_developer:
+                summary: Backend Developer Search
+                value:
+                  prompt: "backend engineer with Node.js and PostgreSQL"
+                  numJobs: 10
+      responses:
+        '200':
+          description: Successful search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: OpenAI service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /locations/validate:
+    get:
+      summary: Validate Location
+      description: |
+        Validate that a city/state combination exists in the database before performing a search.
+
+        ## Use Case
+        Use this endpoint to provide autocomplete or validation in your UI before submitting
+        a search request. This prevents 400 errors from invalid locations.
+
+        ## Database
+        Contains 30,000+ US cities and towns from the GeoNames database.
+      operationId: validateLocation
+      tags:
+        - Location
+      parameters:
+        - name: city
+          in: query
+          required: true
+          description: City name (case-insensitive)
+          schema:
+            type: string
+            minLength: 1
+          examples:
+            austin:
+              value: "Austin"
+              summary: Standard capitalization
+            lowercase:
+              value: "new york city"
+              summary: Lowercase also works
+        - name: state
+          in: query
+          required: true
+          description: Two-letter state code (case-insensitive)
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 2
+          examples:
+            texas:
+              value: "TX"
+            california:
+              value: "CA"
+        - name: country
+          in: query
+          required: false
+          description: Country code (defaults to US)
+          schema:
+            type: string
+            default: "US"
+      responses:
+        '200':
+          description: Location validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationValidationResponse'
+              examples:
+                valid:
+                  summary: Location exists
+                  value:
+                    exists: true
+                    city: "Austin"
+                    state: "TX"
+                    country: "US"
+                    latitude: 30.2672
+                    longitude: -97.7431
+                invalid:
+                  summary: Location not found
+                  value:
+                    exists: false
+                    city: "Faketown"
+                    state: "XX"
+                    country: "US"
+        '400':
+          description: Missing required parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: |
+        API key for authentication. Include in the `x-api-key` header.
+
+        **Example:**
+        ```
+        x-api-key: HHTnWCCgx2uCP7Ia3ZVB80SI6lviPPK0gR7eG8Ne
+        ```
+
+  parameters:
+    ApiVersion:
+      name: x-api-version
+      in: header
+      required: false
+      description: |
+        API version to use (1 or 2). Defaults to 2 if not specified.
+
+        - **V1**: Uses centroid-based location filtering (deprecated)
+        - **V2**: Uses direct PostGIS spatial queries (recommended)
+      schema:
+        type: integer
+        enum: [1, 2]
+        default: 2
+      examples:
+        v2:
+          value: 2
+          summary: Version 2 (recommended)
+        v1:
+          value: 1
+          summary: Version 1 (deprecated)
+
+  responses:
+    Forbidden:
+      description: Invalid or missing API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            message: "Forbidden: Invalid or missing API key"
+
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+        - service
+        - version
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+          description: Overall health status
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of the health check
+        service:
+          type: string
+          description: Service name
+          example: "NLJobSearch API"
+        version:
+          type: string
+          description: API version
+          example: "2.0"
+        database:
+          type: string
+          enum: [connected, disconnected]
+          description: Database connection status
+        responseTime:
+          type: string
+          description: Time taken to execute health check (includes DB query)
+          example: "756.5ms"
+        error:
+          type: string
+          description: Error message if status is unhealthy
+
+    SearchRequest:
+      type: object
+      required:
+        - prompt
+        - numJobs
+        - city
+        - state
+        - miles
+        - includeOnsite
+        - includeHybrid
+      properties:
+        prompt:
+          type: string
+          minLength: 10
+          maxLength: 20000
+          description: Natural language job search query
+          example: "senior software engineer with Python and AWS experience"
+        numJobs:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Number of jobs to return
+          example: 10
+        city:
+          type: string
+          minLength: 1
+          description: City name
+          example: "Austin"
+        state:
+          type: string
+          minLength: 2
+          maxLength: 2
+          description: Two-letter state code
+          example: "TX"
+        miles:
+          type: integer
+          minimum: 1
+          maximum: 20
+          description: Search radius in miles
+          example: 20
+        includeOnsite:
+          type: boolean
+          description: Include on-site jobs in results
+          example: true
+        includeHybrid:
+          type: boolean
+          description: Include hybrid jobs in results
+          example: true
+        daysSincePosting:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Optional filter for jobs posted within the last N days
+          example: 30
+
+    RemoteSearchRequest:
+      type: object
+      required:
+        - prompt
+        - numJobs
+      properties:
+        prompt:
+          type: string
+          minLength: 10
+          maxLength: 20000
+          description: Natural language job search query
+          example: "full stack developer with React and Node.js"
+        numJobs:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Number of jobs to return
+          example: 10
+        daysSincePosting:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Optional filter for jobs posted within the last N days
+          example: 30
+
+    SearchResponse:
+      type: object
+      required:
+        - jobs
+        - totalResults
+        - executionTimeMs
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Job'
+          description: Array of matching jobs ordered by relevance
+        totalResults:
+          type: integer
+          description: Total number of jobs matching the search criteria (before limiting to numJobs)
+          example: 13268
+        executionTimeMs:
+          type: number
+          format: double
+          description: Time taken to execute the search in milliseconds
+          example: 347.5
+        prompt:
+          type: string
+          description: The original search prompt
+        embeddingGenerationTimeMs:
+          type: number
+          format: double
+          description: Time taken to generate the embedding from OpenAI
+          example: 156.2
+        queryExecutionTimeMs:
+          type: number
+          format: double
+          description: Time taken to execute the database query
+          example: 191.3
+
+    Job:
+      type: object
+      required:
+        - id
+        - title
+        - company
+        - description
+        - workplace
+        - postedDate
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique job identifier
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        title:
+          type: string
+          description: Job title
+          example: "Senior Software Engineer"
+        company:
+          type: string
+          description: Company name
+          example: "Acme Corporation"
+        description:
+          type: string
+          description: Full job description
+        workplace:
+          type: string
+          enum: [REMOTE, ONSITE, HYBRID]
+          description: Workplace type
+          example: "HYBRID"
+        postedDate:
+          type: string
+          format: date-time
+          description: When the job was posted
+          example: "2025-10-15T08:30:00Z"
+        locations:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobLocation'
+          description: Job locations (empty for remote jobs)
+        similarityScore:
+          type: number
+          format: double
+          description: Semantic similarity score (lower is more similar, range 0.0-2.0)
+          example: 0.234
+        url:
+          type: string
+          format: uri
+          description: Link to apply for the job
+          example: "https://example.com/jobs/12345"
+        salary:
+          type: string
+          nullable: true
+          description: Salary information if available
+          example: "$120,000 - $150,000"
+
+    JobLocation:
+      type: object
+      properties:
+        city:
+          type: string
+          example: "Austin"
+        state:
+          type: string
+          example: "TX"
+        country:
+          type: string
+          example: "US"
+        latitude:
+          type: number
+          format: double
+          example: 30.2672
+        longitude:
+          type: number
+          format: double
+          example: -97.7431
+        distance:
+          type: number
+          format: double
+          description: Distance from search center in miles (only present in location-based searches)
+          example: 12.5
+
+    LocationValidationResponse:
+      type: object
+      required:
+        - exists
+        - city
+        - state
+        - country
+      properties:
+        exists:
+          type: boolean
+          description: Whether the location exists in the database
+        city:
+          type: string
+          description: City name as it appears in the database
+          example: "Austin"
+        state:
+          type: string
+          description: State code
+          example: "TX"
+        country:
+          type: string
+          description: Country code
+          example: "US"
+        latitude:
+          type: number
+          format: double
+          description: Latitude (only present if location exists)
+          example: 30.2672
+        longitude:
+          type: number
+          format: double
+          description: Longitude (only present if location exists)
+          example: -97.7431
+
+    ErrorResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Prompt must be at least 10 characters long (received: 5 characters)"
+
+tags:
+  - name: System
+    description: System health and monitoring endpoints
+  - name: Search
+    description: Job search endpoints
+  - name: Location
+    description: Location validation and geocoding
